@@ -1,4 +1,4 @@
-// -*- LSST-C++ -*-
+// -*- lsst-c++ -*-
 /*
  * This file is part of meas_extensions_trailedSources.
  *
@@ -22,9 +22,34 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "pybind11/pybind11.h"
+#include "pybind11/stl.h"
+
+#include "lsst/geom.h"
+#include "lsst/afw/image.h"
+#include "lsst/meas/extensions/trailedSources/VeresModel.h"
+#include "lsst/utils/python.h"
+
+namespace py = pybind11;
+using namespace pybind11::literals;
+
 namespace lsst {
 namespace meas {
 namespace extensions {
 namespace trailedSources {
 
+void wrapVeresModel(utils::python::WrapperCollection& wrappers) {
+
+    wrappers.addSignatureDependency("lsst.geom");
+    wrappers.addSignatureDependency("lsst.afw.image");
+
+    wrappers.wrapType(
+        py::class_<VeresModel, std::shared_ptr<VeresModel>>(wrappers.module, "VeresModel"),
+        [](auto & mod, auto & cls) {
+            cls.def(py::init<afw::image::Exposure<float> const&>(), "data"_a);
+            cls.def("__call__", &VeresModel::operator(), py::is_operator(), "params"_a);
+            cls.def("gradient", &VeresModel::gradient, "params"_a);
+            cls.def_property_readonly("sigma", &VeresModel::getSigma);
+    });
+}
 }}}} // lsst::meas::extensions::trailedSources

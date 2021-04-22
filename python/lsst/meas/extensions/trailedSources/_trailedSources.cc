@@ -1,4 +1,4 @@
-// -*- LSST-C++ -*-
+// -*- lsst-c++ -*-
 /*
  * This file is part of meas_extensions_trailedSources.
  *
@@ -22,9 +22,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef LSST_MEAS_EXTENSIONS_TRAILEDSOURCES_H
-#define LSST_MEAS_EXTENSIONS_TRAILEDSOURCES_H
+#include "pybind11/pybind11.h"
 
-#include "lsst/meas/extensions/trailedSources/VeresModel.h"
+#include "lsst/utils/python.h"
 
-#endif
+namespace lsst {
+namespace meas {
+namespace extensions {
+namespace trailedSources {
+
+void wrapVeresModel(lsst::utils::python::WrapperCollection & wrappers);
+
+PYBIND11_MODULE(_trailedSources, mod) {
+    lsst::utils::python::WrapperCollection wrappers(mod, "lsst.meas.extensions.trailedSources");
+    wrapVeresModel(wrappers);
+    wrappers.finish();
+}
+
+}}}} // lsst::meas::extensions::trailedSources
