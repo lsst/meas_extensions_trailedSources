@@ -1,0 +1,12 @@
+python/lsst/meas/extensions/trailedSources/version.py
+*.pyc
+*.o
+*.os
+*.so
+config.log
+.coverage
+.sconf_temp/
+.sconsign.dblite
+*.ipynb_checkpoints/
+tests/.tests
+.vscode/
