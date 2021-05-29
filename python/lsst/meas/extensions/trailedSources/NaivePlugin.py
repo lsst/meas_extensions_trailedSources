@@ -22,7 +22,10 @@
 #
 
 import numpy as np
+import scipy.optimize as sciOpt
+from scipy.special import erf
 
+import lsst.log
 from lsst.meas.base.pluginRegistry import register
 from lsst.meas.base import SingleFramePlugin, SingleFramePluginConfig
 from lsst.meas.base import FlagHandler, FlagDefinitionList, SafeCentroidExtractor
@@ -104,6 +107,7 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         flagDefs = FlagDefinitionList()
         flagDefs.addFailureFlag("No trailed-source measured")
         self.NO_FLUX = flagDefs.add("flag_noFlux", "No suitable prior flux measurement")
+        self.NO_CONVERGE = flagDefs.add("flag_noConverge", "The root finder did not converge")
         self.flagHandler = FlagHandler.addFields(schema, name, flagDefs)
 
         self.centriodExtractor = SafeCentroidExtractor(schema, name)
@@ -128,10 +132,16 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         xpy = Ixx + Iyy
         xmy2 = xmy*xmy
         xy2 = Ixy*Ixy
-        a = np.sqrt(0.5 * (xpy + np.sqrt(xmy2 + 4.0*xy2)))
-        L = 2.0*a
+        a2 = 0.5 * (xpy + np.sqrt(xmy2 + 4.0*xy2))
+        sigma = exposure.getPsf().getSigma()
+
+        length, results = self.findLength(a2, sigma*sigma)
+        if not results.converged:
+            lsst.log.info(results.flag)
+            raise MeasurementError(self.NO_CONVERGE.doc, self.NO_CONVERGE.number)
 
         theta = 0.5 * np.arctan2(2.0 * Ixy, xmy)
+        a = length/2.0
         dydt = a*np.cos(theta)
         dxdt = a*np.sin(theta)
         x0 = xc - dydt
@@ -140,12 +150,12 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         y1 = yc + dxdt
 
         # For now, use the shape flux.
-        F = measRecord.get("base_SdssShape_instFlux")
+        flux = measRecord.get("base_SdssShape_instFlux")
 
         # Fall back to aperture flux
-        if not np.isfinite(F):
+        if not np.isfinite(flux):
             if np.isfinite(measRecord.getApInstFlux()):
-                F = measRecord.getApInstFlux()
+                flux = measRecord.getApInstFlux()
             else:
                 raise MeasurementError(self.NO_FLUX.doc, self.NO_FLUX.number)
 
@@ -172,8 +182,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         measRecord.set(self.keyY0, y0)
         measRecord.set(self.keyX1, x1)
         measRecord.set(self.keyY1, y1)
-        measRecord.set(self.keyFlux, F)
-        measRecord.set(self.keyL, L)
+        measRecord.set(self.keyFlux, flux)
+        measRecord.set(self.keyL, length)
         measRecord.set(self.keyAngle, theta)
         measRecord.set(self.keyX0Err, x0Err)
         measRecord.set(self.keyY0Err, y0Err)
@@ -191,3 +201,15 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
             self.flagHandler.handleFailure(measRecord)
         else:
             self.flagHandler.handleFailure(measRecord, error.cpp)
+
+    def _computeSecondMoment(self, z, c):
+        return erf(z) - c*z*np.exp(-z*z)
+
+    def findLength(self, Ixx, Iyy):
+        xpy = Ixx + Iyy
+        c = 4.0*Ixx/(xpy*np.sqrt(np.pi))
+        z, results = sciOpt.brentq(lambda z: self._computeSecondMomentDiff(z, c),
+                                   0.01, 1.0, full_output=True)
+
+        length = 2.0*z*np.sqrt(2.0*xpy)
+        return length, results
