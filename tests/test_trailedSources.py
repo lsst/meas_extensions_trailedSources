@@ -145,10 +145,16 @@ class TrailedSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
         task.run(catalog, exposure)
         record = catalog[0]
 
-        # Compare true with measured length and angle
+        # Check that root finder converged
+        converged = record.get("ext_trailedSources_Naive_flag_noConverge")
+        self.assertFalse(converged)
+
+        # Compare true with measured length and angle.
+        # Accuracy is dependent on the second-moments measurements, so the
+        # rtol values are simply rough upper bounds.
         length = record.get("ext_trailedSources_Naive_length")
         theta = record.get("ext_trailedSources_Naive_angle")
-        self.assertFloatsAlmostEqual(length, self.trail.length, atol=None, rtol=0.5)
+        self.assertFloatsAlmostEqual(length, self.trail.length, atol=None, rtol=0.1)
         self.assertAnglesAlmostEqual(
             Angle(theta % np.pi), Angle(self.trail.angle % np.pi),
             maxDiff=0.05*Angle(self.trail.angle % np.pi).wrapCtr()
@@ -182,6 +188,7 @@ class TrailedSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
         self.assertFalse(converged)
 
         # Compare measured trail length and angle to true values
+        # These measurements should perform at least as well as NaivePlugin
         length = record.get("ext_trailedSources_Veres_length")
         theta = record.get("ext_trailedSources_Veres_angle")
         self.assertFloatsAlmostEqual(length, self.trail.length, atol=None, rtol=0.1)
