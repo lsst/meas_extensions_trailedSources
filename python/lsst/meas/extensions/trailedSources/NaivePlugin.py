@@ -32,6 +32,9 @@ from lsst.meas.base import SingleFramePlugin, SingleFramePluginConfig
 from lsst.meas.base import FlagHandler, FlagDefinitionList, SafeCentroidExtractor
 from lsst.meas.base import MeasurementError
 
+from ._trailedSources import VeresModel
+from .utils import getMeasurementCutout
+
 __all__ = ("SingleFrameNaiveTrailConfig", "SingleFrameNaiveTrailPlugin")
 
 
@@ -152,10 +155,16 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         if not np.isfinite(sigma):
             raise MeasurementError(self.NO_SIGMA, self.NO_SIGMA.number)
 
-        length, results = self.findLength(a2, sigma*sigma)
-        if not results.converged:
-            lsst.log.info(results.flag)
-            raise MeasurementError(self.NO_CONVERGE.doc, self.NO_CONVERGE.number)
+        # Check if moments are wieghted
+        if measRecord.get("base_SdssShape_flag_unweighted"):
+            lsst.log.info("Unweighed")
+            length = np.sqrt(6.0*(a2 - 2*sigma*sigma))
+        else:
+            lsst.log.info("Weighted")
+            length, results = self.findLength(a2, sigma*sigma)
+            if not results.converged:
+                lsst.log.info(results.flag)
+                raise MeasurementError(self.NO_CONVERGE.doc, self.NO_CONVERGE.number)
 
         theta = 0.5 * np.arctan2(2.0 * Ixy, xmy)
         a = length/2.0
@@ -166,6 +175,16 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         x1 = xc + dydt
         y1 = yc + dxdt
 
+        # Get a cutout of the object from the exposure
+        # cutout = getMeasurementCutout(exposure, xc, yc, L, sigma)
+        cutout = getMeasurementCutout(measRecord, exposure)
+
+        # Compute flux assuming fixed parameters for VeresModel
+        params = np.array([xc, yc, 1.0, L, theta])  # Flux = 1.0
+        model = VeresModel(cutout)
+        modelArray = model.computeModelImage(params).array.flatten()
+        dataArray = cutout.image.array.flatten()
+        F = np.dot(dataArray, modelArray) / np.dot(modelArray, modelArray)
         # For now, use the shape flux.
         flux = measRecord.get("base_SdssShape_instFlux")
 
