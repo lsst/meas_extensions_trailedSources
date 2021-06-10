@@ -95,6 +95,9 @@ public:
      */
     std::vector<double> gradient(std::vector<double> const& params) const;
 
+    /// Compute an image for a trail generated from the Veres model.
+    std::shared_ptr<ImageF> computeModelImage(std::vector<double> const& params) const;
+
     /// Return the PSF sigma.
     double getSigma() const noexcept { return _sigma; }
 

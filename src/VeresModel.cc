@@ -92,6 +92,25 @@ std::vector<double> VeresModel::gradient(std::vector<double> const& params) cons
     return gradChiSq;
 }
 
+std::shared_ptr<ImageF> VeresModel::computeModelImage(std::vector<double> const& params) const {
+    double xc = params[0];     // Centroid x
+    double yc = params[1];     // Centroid y
+    double flux = params[2];   // Flux
+    double length = params[3]; // Trail length
+    double theta = params[4];  // Angle from +x-axis
+
+    // Loop is adapted from lsst::afw::detection::GaussianPsf::doComputeKernelImage()
+    std::shared_ptr<ImageF> image(new ImageF(_bbox));
+    ImageF::Array array = image->getArray();
+    for (int yIndex = 0, yp = _bbox.getBeginY(); yIndex < _bbox.getHeight(); ++yIndex, ++yp) {
+        ImageF::Array::Reference row = array[yIndex];
+        for (int xIndex = 0, xp = _bbox.getBeginX(); xIndex < _bbox.getWidth(); ++xIndex, ++xp) {
+            row[xIndex] = _computeModel(xp,yp,xc,yc,flux,length,theta);
+        }
+    }
+    return image;
+}
+
 double VeresModel::_computeModel(double x, double y, double xc, double yc,
                                  double flux, double length, double theta) const noexcept {
     double xp = (x-xc)*cos(theta) + (y-yc)*sin(theta);
