@@ -33,6 +33,7 @@ from lsst.meas.base import MeasurementError
 
 from ._trailedSources import VeresModel
 from .NaivePlugin import SingleFrameNaiveTrailPlugin
+from .utils import getMeasurementCutout
 
 __all__ = ("SingleFrameVeresTrailConfig", "SingleFrameVeresTrailPlugin")
 
@@ -142,8 +143,13 @@ class SingleFrameVeresTrailPlugin(SingleFramePlugin):
         if not np.isfinite(F) or not np.isfinite(L) or not np.isfinite(theta):
             raise MeasurementError(self.NO_NAIVE.doc, self.NO_NAIVE.number)
 
+        # Get exposure cutout
+        # sigma = exposure.getPsf().getSigma()
+        # cutout = getMeasurementCutout(exposure, xc, yc, L, sigma)
+        cutout = getMeasurementCutout(measRecord, exposure)
+
         # Make VeresModel
-        model = VeresModel(exposure)
+        model = VeresModel(cutout)
 
         # Do optimization with scipy
         params = np.array([xc, yc, F, L, theta])
@@ -161,7 +167,7 @@ class SingleFrameVeresTrailPlugin(SingleFramePlugin):
         y0_fit = yc_fit - a * np.sin(theta_fit)
         x1_fit = xc_fit + a * np.cos(theta_fit)
         y1_fit = yc_fit + a * np.sin(theta_fit)
-        rChiSq = results.fun / (exposure.image.array.size - 6)
+        rChiSq = results.fun / (cutout.image.array.size - 6)
 
         # Set keys
         measRecord.set(self.keyXC, xc_fit)
