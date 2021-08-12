@@ -22,7 +22,10 @@
 #
 
 import numpy as np
+import scipy.optimize as sciOpt
+from scipy.special import erf
 
+import lsst.log
 from lsst.meas.base.pluginRegistry import register
 from lsst.meas.base import SingleFramePlugin, SingleFramePluginConfig
 from lsst.meas.base import FlagHandler, FlagDefinitionList, SafeCentroidExtractor
@@ -57,14 +60,14 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
 
     Notes
     -----
-    This measurement plugin aims to utilize the already measured shape second
-    moments to naively estimate the length and angle, and thus end-points, of a
-    fast-moving, trailed source. The estimate for the trail length is
-    obtained by doubling the semi-major axis, a, of the ellipse defined by
-    the second moments. The angle, theta, from the x-axis is computed
-    similarly (via second moments). The end points of the trail are then given
-    by (xc +/- a*cos(theta), yc +/- a*sin(theta)), with xc and yc being the
-    centroid coordinates.
+    This measurement plugin aims to utilize the already measured adaptive
+    second moments to naively estimate the length and angle, and thus
+    end-points, of a fast-moving, trailed source. The length is solved for via
+    finding the root of the difference between the numerical (stack computed)
+    and the analytic adaptive second moments. The angle, theta, from the x-axis
+    is also computed via adaptive moments: theta = arctan(2*Ixy/(Ixx - Iyy))/2.
+    The end points of the trail are then given by (xc +/- (L/2)*cos(theta),
+    yc +/- (L/2)*sin(theta)), with xc and yc being the centroid coordinates.
 
     See also
     --------
@@ -104,6 +107,7 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         flagDefs = FlagDefinitionList()
         flagDefs.addFailureFlag("No trailed-source measured")
         self.NO_FLUX = flagDefs.add("flag_noFlux", "No suitable prior flux measurement")
+        self.NO_CONVERGE = flagDefs.add("flag_noConverge", "The root finder did not converge")
         self.flagHandler = FlagHandler.addFields(schema, name, flagDefs)
 
         self.centriodExtractor = SafeCentroidExtractor(schema, name)
@@ -128,10 +132,16 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         xpy = Ixx + Iyy
         xmy2 = xmy*xmy
         xy2 = Ixy*Ixy
-        a = np.sqrt(0.5 * (xpy + np.sqrt(xmy2 + 4.0*xy2)))
-        L = 2.0*a
+        a2 = 0.5 * (xpy + np.sqrt(xmy2 + 4.0*xy2))
+        sigma = exposure.getPsf().getSigma()
+
+        length, results = self.findLength(a2, sigma*sigma)
+        if not results.converged:
+            lsst.log.info(results.flag)
+            raise MeasurementError(self.NO_CONVERGE.doc, self.NO_CONVERGE.number)
 
         theta = 0.5 * np.arctan2(2.0 * Ixy, xmy)
+        a = length/2.0
         dydt = a*np.cos(theta)
         dxdt = a*np.sin(theta)
         x0 = xc - dydt
@@ -140,12 +150,12 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         y1 = yc + dxdt
 
         # For now, use the shape flux.
-        F = measRecord.get("base_SdssShape_instFlux")
+        flux = measRecord.get("base_SdssShape_instFlux")
 
         # Fall back to aperture flux
-        if not np.isfinite(F):
+        if not np.isfinite(flux):
             if np.isfinite(measRecord.getApInstFlux()):
-                F = measRecord.getApInstFlux()
+                flux = measRecord.getApInstFlux()
             else:
                 raise MeasurementError(self.NO_FLUX.doc, self.NO_FLUX.number)
 
@@ -172,8 +182,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         measRecord.set(self.keyY0, y0)
         measRecord.set(self.keyX1, x1)
         measRecord.set(self.keyY1, y1)
-        measRecord.set(self.keyFlux, F)
-        measRecord.set(self.keyL, L)
+        measRecord.set(self.keyFlux, flux)
+        measRecord.set(self.keyL, length)
         measRecord.set(self.keyAngle, theta)
         measRecord.set(self.keyX0Err, x0Err)
         measRecord.set(self.keyY0Err, y0Err)
@@ -191,3 +201,66 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
             self.flagHandler.handleFailure(measRecord)
         else:
             self.flagHandler.handleFailure(measRecord, error.cpp)
+
+    def _computeSecondMomentDiff(self, z, c):
+        """Compute difference of the numerical and analytic second moments.
+
+        Parameters
+        ----------
+        z : `float`
+            Proportional to the length of the trail. (see notes)
+        c : `float`
+            Constant (see notes)
+
+        Returns
+        -------
+        diff : `float`
+            Difference in numerical and analytic second moments.
+
+        Notes
+        -----
+        This is a simplified expression for the difference between the stack
+        computed adaptive second-moment and the analytic solution. The variable
+        z is proportional to the length such that L = 2*z*sqrt(2*(Ixx+Iyy)),
+        and c is a constant (c = 4*Ixx/((Ixx+Iyy)*sqrt(pi))). Both have been
+        defined to avoid unnecessary floating-point operations in the root
+        finder.
+        """
+
+        diff = erf(z) - c*z*np.exp(-z*z)
+        return diff
+
+    def findLength(self, Ixx, Iyy):
+        """Find the length of a trail, given adaptive second-moments.
+
+        Uses a root finder to compute the length of a trail corresponding to
+        the adaptive second-moments computed by previous measurements
+        (ie. SdssShape).
+
+        Parameters
+        ----------
+        Ixx : `float`
+            Adaptive second-moment along x-axis.
+        Iyy : `float`
+            Adaptive second-moment along y-axis.
+
+        Returns
+        -------
+        length : `float`
+            Length of the trail.
+        results : `scipy.optimize.RootResults`
+            Contains messages about convergence from the root finder.
+        """
+
+        xpy = Ixx + Iyy
+        c = 4.0*Ixx/(xpy*np.sqrt(np.pi))
+
+        # Given a 'c' in (c_min, c_max], the root is contained in (0,1].
+        # c_min is given by the case: Ixx == Iyy, ie. a point source.
+        # c_max is given by the limit Ixx >> Iyy.
+        # Emperically, 0.001 is a suitable lower bound, assuming Ixx > Iyy.
+        z, results = sciOpt.brentq(lambda z: self._computeSecondMomentDiff(z, c),
+                                   0.001, 1.0, full_output=True)
+
+        length = 2.0*z*np.sqrt(2.0*xpy)
+        return length, results
