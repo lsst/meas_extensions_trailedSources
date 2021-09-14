@@ -7,6 +7,7 @@ setupRequired(afw)
 setupRequired(geom)
 setupRequired(pex_config)
 setupRequired(utils)
+setupRequired(cpputils)
 setupRequired(meas_base)
 
 # The following is boilerplate for all packages.
