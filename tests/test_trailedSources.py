@@ -145,6 +145,16 @@ class TrailedSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
         task.run(catalog, exposure)
         record = catalog[0]
 
+        # Check the RA and Dec measurements
+        wcs = exposure.getWcs()
+        spt = wcs.pixelToSky(self.center)
+        ra_true = spt.getRa().asDegrees()
+        dec_true = spt.getDec().asDegrees()
+        ra_meas = record.get("ext_trailedSources_Naive_ra")
+        dec_meas = record.get("ext_trailedSources_Naive_dec")
+        self.assertFloatsAlmostEqual(ra_true, ra_meas, atol=None, rtol=0.01)
+        self.assertFloatsAlmostEqual(dec_true, dec_meas, atol=None, rtol=0.01)
+
         # Check that root finder converged
         converged = record.get("ext_trailedSources_Naive_flag_noConverge")
         self.assertFalse(converged)
