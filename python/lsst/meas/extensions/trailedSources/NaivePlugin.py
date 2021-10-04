@@ -26,6 +26,7 @@ import scipy.optimize as sciOpt
 from scipy.special import erf
 
 import lsst.log
+from lsst.geom import Point2D
 from lsst.meas.base.pluginRegistry import register
 from lsst.meas.base import SingleFramePlugin, SingleFramePluginConfig
 from lsst.meas.base import FlagHandler, FlagDefinitionList, SafeCentroidExtractor
@@ -86,6 +87,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         super().__init__(config, name, schema, metadata)
 
         # Measurement Keys
+        self.keyRa = schema.addField(name + "_ra", type="D", doc="Trail centroid right ascension.")
+        self.keyDec = schema.addField(name + "_dec", type="D", doc="Trail centroid declination.")
         self.keyX0 = schema.addField(name + "_x0", type="D", doc="Trail head X coordinate.", units="pixel")
         self.keyY0 = schema.addField(name + "_y0", type="D", doc="Trail head Y coordinate.", units="pixel")
         self.keyX1 = schema.addField(name + "_x1", type="D", doc="Trail tail X coordinate.", units="pixel")
@@ -126,7 +129,15 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         --------
         lsst.meas.base.SingleFramePlugin.measure
         """
-        xc, yc = self.centriodExtractor(measRecord, self.flagHandler)
+
+        # Get the SdssShape centroid or fall back to slot
+        xc = measRecord.get("base_SdssShape_x")
+        yc = measRecord.get("base_SdssShape_y")
+        if not np.isfinite(xc) or not np.isfinite(yc):
+            xc, yc = self.centriodExtractor(measRecord, self.flagHandler)
+
+        ra, dec = self.computeRaDec(exposure, xc, yc)
+
         Ixx, Iyy, Ixy = measRecord.getShape().getParameterVector()
         xmy = Ixx - Iyy
         xpy = Ixx + Iyy
@@ -178,6 +189,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         y0Err = np.sqrt(yErr2 + ycErr2)  # Same for y1
 
         # Set flags
+        measRecord.set(self.keyRa, ra)
+        measRecord.set(self.keyDec, dec)
         measRecord.set(self.keyX0, x0)
         measRecord.set(self.keyY0, y0)
         measRecord.set(self.keyX1, x1)
@@ -264,3 +277,29 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
 
         length = 2.0*z*np.sqrt(2.0*xpy)
         return length, results
+
+    def computeRaDec(self, exposure, x, y):
+        """Convert pixel coordinates to RA and Dec.
+
+        Parameters
+        ----------
+        exposure : `lsst.afw.image.ExposureF`
+            Exposure object containing the WCS.
+        x : `float`
+            x coordinate of the trail centroid
+        y : `float`
+            y coodinate of the trail centroid
+
+        Returns
+        -------
+        ra : `float`
+            Right ascension.
+        dec : `float`
+            Declination.
+        """
+
+        wcs = exposure.getWcs()
+        center = wcs.pixelToSky(Point2D(x, y))
+        ra = center.getRa().asDegrees()
+        dec = center.getDec().asDegrees()
+        return ra, dec
