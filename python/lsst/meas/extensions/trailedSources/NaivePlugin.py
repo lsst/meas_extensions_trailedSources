@@ -111,6 +111,7 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         flagDefs.addFailureFlag("No trailed-source measured")
         self.NO_FLUX = flagDefs.add("flag_noFlux", "No suitable prior flux measurement")
         self.NO_CONVERGE = flagDefs.add("flag_noConverge", "The root finder did not converge")
+        self.NO_SIGMA = flagDefs.add("flag_noSigma", "No PSF width (sigma)")
         self.flagHandler = FlagHandler.addFields(schema, name, flagDefs)
 
         self.centriodExtractor = SafeCentroidExtractor(schema, name)
@@ -144,7 +145,12 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         xmy2 = xmy*xmy
         xy2 = Ixy*Ixy
         a2 = 0.5 * (xpy + np.sqrt(xmy2 + 4.0*xy2))
-        sigma = exposure.getPsf().getSigma()
+
+        # Get the width of the PSF at the center of the trail
+        center = Point2D(xc, yc)
+        sigma = exposure.getPsf().computeShape(center).getTraceRadius()
+        if not np.isfinite(sigma):
+            raise MeasurementError(self.NO_SIGMA, self.NO_SIGMA.number)
 
         length, results = self.findLength(a2, sigma*sigma)
         if not results.converged:
