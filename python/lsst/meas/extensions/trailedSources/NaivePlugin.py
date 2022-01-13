@@ -32,6 +32,9 @@ from lsst.meas.base import SingleFramePlugin, SingleFramePluginConfig
 from lsst.meas.base import FlagHandler, FlagDefinitionList, SafeCentroidExtractor
 from lsst.meas.base import MeasurementError
 
+from ._trailedSources import VeresModel
+from .utils import getMeasurementCutout
+
 __all__ = ("SingleFrameNaiveTrailConfig", "SingleFrameNaiveTrailPlugin")
 
 
@@ -67,8 +70,9 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
     finding the root of the difference between the numerical (stack computed)
     and the analytic adaptive second moments. The angle, theta, from the x-axis
     is also computed via adaptive moments: theta = arctan(2*Ixy/(Ixx - Iyy))/2.
-    The end points of the trail are then given by (xc +/- (L/2)*cos(theta),
-    yc +/- (L/2)*sin(theta)), with xc and yc being the centroid coordinates.
+    The end points of the trail are then given by (xc +/- (length/2)*cos(theta)
+    and yc +/- (length/2)*sin(theta)), with xc and yc being the centroid
+    coordinates.
 
     See also
     --------
@@ -94,7 +98,7 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         self.keyX1 = schema.addField(name + "_x1", type="D", doc="Trail tail X coordinate.", units="pixel")
         self.keyY1 = schema.addField(name + "_y1", type="D", doc="Trail tail Y coordinate.", units="pixel")
         self.keyFlux = schema.addField(name + "_flux", type="D", doc="Trailed source flux.", units="count")
-        self.keyL = schema.addField(name + "_length", type="D", doc="Trail length.", units="pixel")
+        self.keyLength = schema.addField(name + "_length", type="D", doc="Trail length.", units="pixel")
         self.keyAngle = schema.addField(name + "_angle", type="D", doc="Angle measured from +x-axis.")
 
         # Measurement Error Keys
@@ -152,10 +156,16 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         if not np.isfinite(sigma):
             raise MeasurementError(self.NO_SIGMA, self.NO_SIGMA.number)
 
-        length, results = self.findLength(a2, sigma*sigma)
-        if not results.converged:
-            lsst.log.info(results.flag)
-            raise MeasurementError(self.NO_CONVERGE.doc, self.NO_CONVERGE.number)
+        # Check if moments are wieghted
+        if measRecord.get("base_SdssShape_flag_unweighted"):
+            lsst.log.info("Unweighed")
+            length = np.sqrt(6.0*(a2 - 2*sigma*sigma))
+        else:
+            lsst.log.info("Weighted")
+            length, results = self.findLength(a2, sigma*sigma)
+            if not results.converged:
+                lsst.log.info(results.flag)
+                raise MeasurementError(self.NO_CONVERGE.doc, self.NO_CONVERGE.number)
 
         theta = 0.5 * np.arctan2(2.0 * Ixy, xmy)
         a = length/2.0
@@ -166,8 +176,16 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         x1 = xc + dydt
         y1 = yc + dxdt
 
-        # For now, use the shape flux.
-        flux = measRecord.get("base_SdssShape_instFlux")
+        # Get a cutout of the object from the exposure
+        # cutout = getMeasurementCutout(exposure, xc, yc, L, sigma)
+        cutout = getMeasurementCutout(measRecord, exposure)
+
+        # Compute flux assuming fixed parameters for VeresModel
+        params = np.array([xc, yc, 1.0, length, theta])  # Flux = 1.0
+        model = VeresModel(cutout)
+        modelArray = model.computeModelImage(params).array.flatten()
+        dataArray = cutout.image.array.flatten()
+        flux = np.dot(dataArray, modelArray) / np.dot(modelArray, modelArray)
 
         # Fall back to aperture flux
         if not np.isfinite(flux):
@@ -202,7 +220,7 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         measRecord.set(self.keyX1, x1)
         measRecord.set(self.keyY1, y1)
         measRecord.set(self.keyFlux, flux)
-        measRecord.set(self.keyL, length)
+        measRecord.set(self.keyLength, length)
         measRecord.set(self.keyAngle, theta)
         measRecord.set(self.keyX0Err, x0Err)
         measRecord.set(self.keyY0Err, y0Err)
@@ -240,7 +258,7 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         -----
         This is a simplified expression for the difference between the stack
         computed adaptive second-moment and the analytic solution. The variable
-        z is proportional to the length such that L = 2*z*sqrt(2*(Ixx+Iyy)),
+        z is proportional to the length such that length=2*z*sqrt(2*(Ixx+Iyy)),
         and c is a constant (c = 4*Ixx/((Ixx+Iyy)*sqrt(pi))). Both have been
         defined to avoid unnecessary floating-point operations in the root
         finder.

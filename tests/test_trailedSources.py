@@ -27,7 +27,8 @@ import lsst.utils.tests
 import lsst.meas.extensions.trailedSources
 from lsst.meas.base.tests import AlgorithmTestCase
 from lsst.utils.tests import classParameters
-from lsst.geom import Angle
+
+import lsst.log
 
 # Trailed-source length, angle, and centroid.
 rng = np.random.default_rng(432)
@@ -80,7 +81,7 @@ class TrailedTestDataset(lsst.meas.base.tests.TestDataset):
         record.set(self.keys["isStar"], False)
 
         # Sum the psf at each
-        numIter = int(5*trail.length)
+        numIter = int(10*trail.length)
         xp = np.linspace(trail.x0, trail.x1, num=numIter)
         yp = np.linspace(trail.y0, trail.y1, num=numIter)
         for (x, y) in zip(xp, yp):
@@ -89,7 +90,11 @@ class TrailedTestDataset(lsst.meas.base.tests.TestDataset):
                                    lsst.afw.geom.Ellipse(self.psfShape, pt))
             self.exposure.getMaskedImage().getImage().getArray()[:, :] += im.getArray()
 
-        record.set(self.keys["instFlux"], self.exposure.getImage().array.sum())
+        totFlux = self.exposure.image.array.sum()
+        self.exposure.image.array /= totFlux
+        self.exposure.image.array *= trail.instFlux
+
+        record.set(self.keys["instFlux"], trail.instFlux)
         self._installFootprint(record, self.exposure.getImage())
 
         return record, self.exposure.getImage()
@@ -159,16 +164,16 @@ class TrailedSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
         converged = record.get("ext_trailedSources_Naive_flag_noConverge")
         self.assertFalse(converged)
 
-        # Compare true with measured length and angle.
+        # Compare true with measured length, angle, and flux.
         # Accuracy is dependent on the second-moments measurements, so the
         # rtol values are simply rough upper bounds.
         length = record.get("ext_trailedSources_Naive_length")
         theta = record.get("ext_trailedSources_Naive_angle")
+        flux = record.get("ext_trailedSources_Naive_flux")
         self.assertFloatsAlmostEqual(length, self.trail.length, atol=None, rtol=0.1)
-        self.assertAnglesAlmostEqual(
-            Angle(theta % np.pi), Angle(self.trail.angle % np.pi),
-            maxDiff=0.05*Angle(self.trail.angle % np.pi).wrapCtr()
-        )
+        self.assertFloatsAlmostEqual(theta % np.pi, self.trail.angle % np.pi,
+                                     atol=np.arctan(1/length), rtol=None)
+        self.assertFloatsAlmostEqual(flux, self.trail.instFlux, atol=None, rtol=0.1)
 
         # Check test setup
         self.assertNotEqual(length, self.trail.length)
@@ -186,10 +191,12 @@ class TrailedSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
         # Set up and run Veres measurement.
         task = self.makeTrailedSourceMeasurementTask(
             plugin="ext_trailedSources_Veres",
-            dependencies=("base_SdssShape", "ext_trailedSources_Naive")
+            dependencies=(
+                "base_SdssCentroid",
+                "base_SdssShape",
+                "ext_trailedSources_Naive")
         )
         exposure, catalog = self.dataset.realize(10.0, task.schema, randomSeed=0)
-        task.config.plugins['ext_trailedSources_Veres'].optimizerMethod = 'Powell'
         task.run(catalog, exposure)
         record = catalog[0]
 
@@ -197,15 +204,15 @@ class TrailedSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
         converged = record.get("ext_trailedSources_Veres_flag_nonConvergence")
         self.assertFalse(converged)
 
-        # Compare measured trail length and angle to true values
+        # Compare measured trail length, angle, and flux to true values
         # These measurements should perform at least as well as NaivePlugin
         length = record.get("ext_trailedSources_Veres_length")
         theta = record.get("ext_trailedSources_Veres_angle")
+        flux = record.get("ext_trailedSources_Veres_flux")
         self.assertFloatsAlmostEqual(length, self.trail.length, atol=None, rtol=0.1)
-        self.assertAnglesAlmostEqual(
-            Angle(theta % np.pi), Angle(self.trail.angle % np.pi),
-            maxDiff=0.05*Angle(self.trail.angle % np.pi).wrapCtr()
-        )
+        self.assertFloatsAlmostEqual(theta % np.pi, self.trail.angle % np.pi,
+                                     atol=np.arctan(1/length), rtol=None)
+        self.assertFloatsAlmostEqual(flux, self.trail.instFlux, atol=None, rtol=0.1)
 
         # Make sure test setup is working as expected
         self.assertNotEqual(length, self.trail.length)
@@ -213,8 +220,8 @@ class TrailedSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
 
         # Test that reduced chi-squared is reasonable
         rChiSq = record.get("ext_trailedSources_Veres_rChiSq")
-        self.assertGreater(rChiSq, 0.9)
-        self.assertLess(rChiSq, 1.1)
+        self.assertGreater(rChiSq, 0.8)
+        self.assertLess(rChiSq, 1.3)
 
         # Make sure measurement flag is False
         self.assertFalse(record.get("ext_trailedSources_Veres_flag"))

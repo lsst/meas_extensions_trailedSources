@@ -33,6 +33,7 @@ from lsst.meas.base import MeasurementError
 
 from ._trailedSources import VeresModel
 from .NaivePlugin import SingleFrameNaiveTrailPlugin
+from .utils import getMeasurementCutout
 
 __all__ = ("SingleFrameVeresTrailConfig", "SingleFrameVeresTrailPlugin")
 
@@ -105,7 +106,7 @@ class SingleFrameVeresTrailPlugin(SingleFramePlugin):
         self.keyY0 = schema.addField(name + "_y0", type="D", doc="Trail head Y coordinate.", units="pixel")
         self.keyX1 = schema.addField(name + "_x1", type="D", doc="Trail tail X coordinate.", units="pixel")
         self.keyY1 = schema.addField(name + "_y1", type="D", doc="Trail tail Y coordinate.", units="pixel")
-        self.keyL = schema.addField(name + "_length", type="D", doc="Length of trail.", units="pixel")
+        self.keyLength = schema.addField(name + "_length", type="D", doc="Length of trail.", units="pixel")
         self.keyTheta = schema.addField(name + "_angle", type="D", doc="Angle of trail from +x-axis.")
         self.keyFlux = schema.addField(name + "_flux", type="D", doc="Trailed source flux.", units="count")
         self.keyRChiSq = schema.addField(name + "_rChiSq", type="D", doc="Reduced chi-squared of fit")
@@ -136,17 +137,22 @@ class SingleFrameVeresTrailPlugin(SingleFramePlugin):
 
         # Look at measRecord for Naive measurements
         # ASSUMES NAIVE ALREADY RAN
-        F = measRecord.get("ext_trailedSources_Naive_flux")
-        L = measRecord.get("ext_trailedSources_Naive_length")
+        flux = measRecord.get("ext_trailedSources_Naive_flux")
+        length = measRecord.get("ext_trailedSources_Naive_length")
         theta = measRecord.get("ext_trailedSources_Naive_angle")
-        if not np.isfinite(F) or not np.isfinite(L) or not np.isfinite(theta):
+        if not np.isfinite(flux) or not np.isfinite(length) or not np.isfinite(theta):
             raise MeasurementError(self.NO_NAIVE.doc, self.NO_NAIVE.number)
 
+        # Get exposure cutout
+        # sigma = exposure.getPsf().getSigma()
+        # cutout = getMeasurementCutout(exposure, xc, yc, length, sigma)
+        cutout = getMeasurementCutout(measRecord, exposure)
+
         # Make VeresModel
-        model = VeresModel(exposure)
+        model = VeresModel(cutout)
 
         # Do optimization with scipy
-        params = np.array([xc, yc, F, L, theta])
+        params = np.array([xc, yc, flux, length, theta])
         results = sciOpt.minimize(
             model, params, method=self.config.optimizerMethod, jac=model.gradient)
 
@@ -155,13 +161,13 @@ class SingleFrameVeresTrailPlugin(SingleFramePlugin):
             raise MeasurementError(self.NON_CONVERGE.doc, self.NON_CONVERGE.number)
 
         # Calculate end points and reduced chi-squared
-        xc_fit, yc_fit, F_fit, L_fit, theta_fit = results.x
-        a = L_fit/2
+        xc_fit, yc_fit, flux_fit, length_fit, theta_fit = results.x
+        a = length_fit/2
         x0_fit = xc_fit - a * np.cos(theta_fit)
         y0_fit = yc_fit - a * np.sin(theta_fit)
         x1_fit = xc_fit + a * np.cos(theta_fit)
         y1_fit = yc_fit + a * np.sin(theta_fit)
-        rChiSq = results.fun / (exposure.image.array.size - 6)
+        rChiSq = results.fun / (cutout.image.array.size - 6)
 
         # Set keys
         measRecord.set(self.keyXC, xc_fit)
@@ -170,8 +176,8 @@ class SingleFrameVeresTrailPlugin(SingleFramePlugin):
         measRecord.set(self.keyY0, y0_fit)
         measRecord.set(self.keyX1, x1_fit)
         measRecord.set(self.keyY1, y1_fit)
-        measRecord.set(self.keyFlux, F_fit)
-        measRecord.set(self.keyL, L_fit)
+        measRecord.set(self.keyFlux, flux_fit)
+        measRecord.set(self.keyLength, length_fit)
         measRecord.set(self.keyTheta, theta_fit)
         measRecord.set(self.keyRChiSq, rChiSq)
 
