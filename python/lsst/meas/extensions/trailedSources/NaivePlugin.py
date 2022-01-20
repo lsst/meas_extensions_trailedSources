@@ -110,12 +110,18 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
                                         doc="Trail tail X coordinate error.", units="pixel")
         self.keyY1Err = schema.addField(name + "_y1Err", type="D",
                                         doc="Trail tail Y coordinate error.", units="pixel")
+        self.keyFluxErr = schema.addField(name + "_fluxErr", type="D",
+                                          doc="Trail flux error.", units="count")
+        self.keyLengthErr = schema.addField(name + "_lengthErr", type="D",
+                                            doc="Trail length error.", units="pixel")
+        self.keyAngleErr = schema.addField(name + "_angleErr", type="D", doc="Trail angle error.")
 
         flagDefs = FlagDefinitionList()
         flagDefs.addFailureFlag("No trailed-source measured")
         self.NO_FLUX = flagDefs.add("flag_noFlux", "No suitable prior flux measurement")
         self.NO_CONVERGE = flagDefs.add("flag_noConverge", "The root finder did not converge")
         self.NO_SIGMA = flagDefs.add("flag_noSigma", "No PSF width (sigma)")
+        self.SAFE_CENTROID = flagDefs.add("flag_safeCentroid", "Fell back to safe centroid extractor")
         self.flagHandler = FlagHandler.addFields(schema, name, flagDefs)
 
         self.centriodExtractor = SafeCentroidExtractor(schema, name)
@@ -136,56 +142,55 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         """
 
         # Get the SdssShape centroid or fall back to slot
+        # There are currently no centroid errors for SdssShape
         xc = measRecord.get("base_SdssShape_x")
         yc = measRecord.get("base_SdssShape_y")
         if not np.isfinite(xc) or not np.isfinite(yc):
-            xc, yc = self.centriodExtractor(measRecord, self.flagHandler)
+            xc, yc = self.centroidExtractor(measRecord, self.flagHandler)
+            raise MeasurementError(self.SAFE_CENTROID.doc, self.SAFE_CENTROID.number)
 
         ra, dec = self.computeRaDec(exposure, xc, yc)
 
+        # Transform the second-moments to semi-major and minor axes
         Ixx, Iyy, Ixy = measRecord.getShape().getParameterVector()
         xmy = Ixx - Iyy
         xpy = Ixx + Iyy
         xmy2 = xmy*xmy
         xy2 = Ixy*Ixy
         a2 = 0.5 * (xpy + np.sqrt(xmy2 + 4.0*xy2))
+        b2 = 0.5 * (xpy - np.sqrt(xmy2 + 4.0*xy2))
 
-        # Get the width of the PSF at the center of the trail
-        center = Point2D(xc, yc)
-        sigma = exposure.getPsf().computeShape(center).getTraceRadius()
-        if not np.isfinite(sigma):
-            raise MeasurementError(self.NO_SIGMA, self.NO_SIGMA.number)
-
-        # Check if moments are wieghted
+        # Measure the trail length
+        # Check if the second-moments are weighted
         if measRecord.get("base_SdssShape_flag_unweighted"):
             lsst.log.debug("Unweighed")
-            length = np.sqrt(6.0*(a2 - 2*sigma*sigma))
+            length, gradLength = self.computeLength(a2, b2)
         else:
             lsst.log.debug("Weighted")
-            length, results = self.findLength(a2, sigma*sigma)
+            length, gradLength, results = self.findLength(a2, b2)
             if not results.converged:
                 lsst.log.info(results.flag)
                 raise MeasurementError(self.NO_CONVERGE.doc, self.NO_CONVERGE.number)
 
+        # Compute the angle of the trail from the x-axis
         theta = 0.5 * np.arctan2(2.0 * Ixy, xmy)
-        a = length/2.0
-        dydt = a*np.cos(theta)
-        dxdt = a*np.sin(theta)
-        x0 = xc - dydt
-        y0 = yc - dxdt
-        x1 = xc + dydt
-        y1 = yc + dxdt
+
+        # Get end-points of the trail (there is a degeneracy here)
+        radius = length/2.0  # Trail 'radius'
+        dydtheta = radius*np.cos(theta)
+        dxdtheta = radius*np.sin(theta)
+        x0 = xc - dydtheta
+        y0 = yc - dxdtheta
+        x1 = xc + dydtheta
+        y1 = yc + dxdtheta
 
         # Get a cutout of the object from the exposure
-        # cutout = getMeasurementCutout(exposure, xc, yc, L, sigma)
         cutout = getMeasurementCutout(measRecord, exposure)
 
         # Compute flux assuming fixed parameters for VeresModel
         params = np.array([xc, yc, 1.0, length, theta])  # Flux = 1.0
         model = VeresModel(cutout)
-        modelArray = model.computeModelImage(params).array.flatten()
-        dataArray = cutout.image.array.flatten()
-        flux = np.dot(dataArray, modelArray) / np.dot(modelArray, modelArray)
+        flux, gradFlux = model.computeFluxWithGradient(params)
 
         # Fall back to aperture flux
         if not np.isfinite(flux):
@@ -194,23 +199,41 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
             else:
                 raise MeasurementError(self.NO_FLUX.doc, self.NO_FLUX.number)
 
-        # Propagate errors from second moments
-        xcErr2, ycErr2 = np.diag(measRecord.getCentroidErr())
+        # Propogate errors from second moments and centroid
         IxxErr2, IyyErr2, IxyErr2 = np.diag(measRecord.getShapeErr())
-        desc = np.sqrt(xmy2 + 4.0*xy2)  # Descriminant^1/2 of EV equation
-        denom = 2*np.sqrt(2.0*(Ixx + np.sqrt(4.0*xy2 + xmy2 + Iyy)))  # Denominator for dadIxx and dadIyy
-        dadIxx = (1.0 + (xmy/desc)) / denom
-        dadIyy = (1.0 - (xmy/desc)) / denom
-        dadIxy = (4.0*Ixy) / (desc * denom)
-        aErr2 = IxxErr2*dadIxx*dadIxx + IyyErr2*dadIyy*dadIyy + IxyErr2*dadIxy*dadIxy
-        thetaErr2 = ((IxxErr2 + IyyErr2)*xy2 + xmy2*IxyErr2) / (desc*desc*desc*desc)
 
-        dxda = np.cos(theta)
-        dyda = np.sin(theta)
-        xErr2 = aErr2*dxda*dxda + thetaErr2*dxdt*dxdt
-        yErr2 = aErr2*dyda*dyda + thetaErr2*dydt*dydt
-        x0Err = np.sqrt(xErr2 + xcErr2)  # Same for x1
-        y0Err = np.sqrt(yErr2 + ycErr2)  # Same for y1
+        # SdssShape does not produce centroid errors. The
+        # Slot centroid errors will suffice for now.
+        xcErr2, ycErr2 = np.diag(measRecord.getCentroidErr())
+
+        # Error in length
+        desc = np.sqrt(xmy2 + 4.0*xy2)  # Descriminant^1/2 of EV equation
+        da2dIxx = 0.5*(1.0 + (xmy/desc))
+        da2dIyy = 0.5*(1.0 - (xmy/desc))
+        da2dIxy = 2.0*Ixy / desc
+        a2Err2 = IxxErr2*da2dIxx*da2dIxx + IyyErr2*da2dIyy*da2dIyy + IxyErr2*da2dIxy*da2dIxy
+        b2Err2 = IxxErr2*da2dIyy*da2dIyy + IyyErr2*da2dIxx*da2dIxx + IxyErr2*da2dIxy*da2dIxy
+        dLda2, dLdb2 = gradLength
+        lengthErr = np.sqrt(dLda2*dLda2*a2Err2 + dLdb2*dLdb2*b2Err2)
+
+        # Error in theta
+        dThetadIxx = -Ixy / (xmy2 + 4.0*xy2)  # dThetadIxx = -dThetadIyy
+        dThetadIxy = xmy / (xmy2 + 4.0*xy2)
+        thetaErr = np.sqrt(dThetadIxx*dThetadIxx*(IxxErr2 + IyyErr2) + dThetadIxy*dThetadIxy*IxyErr2)
+
+        # Error in flux
+        dFdxc, dFdyc, _, dFdL, dFdTheta = gradFlux
+        fluxErr = np.sqrt(dFdL*dFdL*lengthErr*lengthErr + dFdTheta*dFdTheta*thetaErr*thetaErr
+                          + dFdxc*dFdxc*xcErr2 + dFdyc*dFdyc*ycErr2)
+
+        # Errors in end-points
+        dxdradius = np.cos(theta)
+        dydradius = np.sin(theta)
+        radiusErr2 = lengthErr*lengthErr/4.0
+        xErr2 = np.sqrt(xcErr2 + radiusErr2*dxdradius*dxdradius + thetaErr*thetaErr*dxdtheta*dxdtheta)
+        yErr2 = np.sqrt(ycErr2 + radiusErr2*dydradius*dydradius + thetaErr*thetaErr*dydtheta*dydtheta)
+        x0Err = np.sqrt(xErr2)  # Same for x1
+        y0Err = np.sqrt(yErr2)  # Same for y1
 
         # Set flags
         measRecord.set(self.keyRa, ra)
@@ -226,6 +249,9 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         measRecord.set(self.keyY0Err, y0Err)
         measRecord.set(self.keyX1Err, x0Err)
         measRecord.set(self.keyY1Err, y0Err)
+        measRecord.set(self.keyFluxErr, fluxErr)
+        measRecord.set(self.keyLengthErr, lengthErr)
+        measRecord.set(self.keyAngleErr, thetaErr)
 
     def fail(self, measRecord, error=None):
         """Record failure
@@ -239,7 +265,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         else:
             self.flagHandler.handleFailure(measRecord, error.cpp)
 
-    def _computeSecondMomentDiff(self, z, c):
+    @staticmethod
+    def _computeSecondMomentDiff(z, c):
         """Compute difference of the numerical and analytic second moments.
 
         Parameters
@@ -267,7 +294,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         diff = erf(z) - c*z*np.exp(-z*z)
         return diff
 
-    def findLength(self, Ixx, Iyy):
+    @classmethod
+    def findLength(cls, Ixx, Iyy):
         """Find the length of a trail, given adaptive second-moments.
 
         Uses a root finder to compute the length of a trail corresponding to
@@ -296,13 +324,53 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         # c_min is given by the case: Ixx == Iyy, ie. a point source.
         # c_max is given by the limit Ixx >> Iyy.
         # Emperically, 0.001 is a suitable lower bound, assuming Ixx > Iyy.
-        z, results = sciOpt.brentq(lambda z: self._computeSecondMomentDiff(z, c),
+        z, results = sciOpt.brentq(lambda z: cls._computeSecondMomentDiff(z, c),
                                    0.001, 1.0, full_output=True)
 
         length = 2.0*z*np.sqrt(2.0*xpy)
-        return length, results
+        gradLength = cls._gradFindLength(Ixx, Iyy, z, c)
+        return length, gradLength, results
 
-    def computeRaDec(self, exposure, x, y):
+    @staticmethod
+    def _gradFindLength(Ixx, Iyy, z, c):
+        """Compute the gradient of the findLength function.
+        """
+        spi = np.sqrt(np.pi)
+        xpy = Ixx+Iyy
+        xpy2 = xpy*xpy
+        enz2 = np.exp(-z*z)
+        sxpy = np.sqrt(xpy)
+
+        fac = 4.0 / (spi*xpy2)
+        dcdIxx = Iyy*fac
+        dcdIyy = -Ixx*fac
+
+        # Derivatives of the _computeMomentsDiff function
+        dfdc = z*enz2
+        dzdf = spi / (enz2*(spi*c*(2.0*z*z - 1.0) + 2.0))  # inverse of dfdz
+
+        dLdz = 2.0*np.sqrt(2.0)*sxpy
+        pLpIxx = np.sqrt(2.0)*z / sxpy  # Same as pLpIyy
+
+        dLdc = dLdz*dzdf*dfdc
+        dLdIxx = dLdc*dcdIxx + pLpIxx
+        dLdIyy = dLdc*dcdIyy + pLpIxx
+        return dLdIxx, dLdIyy
+
+    @staticmethod
+    def computeLength(Ixx, Iyy):
+        """Compute the length of a trail, given unweighted second-moments.
+        """
+        denom = np.sqrt(Ixx - 2.0*Iyy)
+
+        length = np.sqrt(6.0)*denom
+
+        dLdIxx = np.sqrt(1.5) / denom
+        dLdIyy = -np.sqrt(6.0) / denom
+        return length, (dLdIxx, dLdIyy)
+
+    @staticmethod
+    def computeRaDec(exposure, x, y):
         """Convert pixel coordinates to RA and Dec.
 
         Parameters
