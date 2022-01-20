@@ -95,6 +95,26 @@ public:
      */
     std::vector<double> gradient(std::vector<double> const& params) const;
 
+    /**
+     * Computes the flux and the gradient with respect to the other model parameters.
+     *
+     * We estimate the flux by solving the linear least-squares problem for the
+     * Veres et al. 2012 model. By keeping the length, angle, and centroid
+     * coordinates fixed, we analytically solve for the flux.
+     *
+     * @param params Model parameters.
+     *
+     * @return The flux and the gradient with respect to the model parameters.
+     *
+     * @note The params vector contains the following model parameters:
+     *     - Centroid x: X-coordinate of the centroid in given image [pixels].
+     *     - Centroid y: Y-coordinate of the centroid in given image [pixels].
+     *     - Flux: Total flux in the trail [count].
+     *     - Length: Length of the trail [pixels].
+     *     - Angle: Angle from the +x-axis [radians].
+     */
+    std::tuple<double, std::vector<double>> computeFluxWithGradient(std::vector<double> const& params) const;
+
     /// Compute an image for a trail generated from the Veres model.
     std::shared_ptr<ImageF> computeModelImage(std::vector<double> const& params) const;
 

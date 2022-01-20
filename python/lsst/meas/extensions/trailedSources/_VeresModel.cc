@@ -49,6 +49,7 @@ void wrapVeresModel(utils::python::WrapperCollection& wrappers) {
             cls.def(py::init<afw::image::Exposure<float> const&>(), "data"_a);
             cls.def("__call__", &VeresModel::operator(), py::is_operator(), "params"_a);
             cls.def("gradient", &VeresModel::gradient, "params"_a);
+            cls.def("computeFluxWithGradient", &VeresModel::computeFluxWithGradient, "params"_a);
             cls.def("computeModelImage", &VeresModel::computeModelImage, "params"_a);
             cls.def_property_readonly("sigma", &VeresModel::getSigma);
     });
