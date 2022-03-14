@@ -158,10 +158,10 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
 
         # Check if moments are wieghted
         if measRecord.get("base_SdssShape_flag_unweighted"):
-            lsst.log.info("Unweighed")
+            lsst.log.debug("Unweighed")
             length = np.sqrt(6.0*(a2 - 2*sigma*sigma))
         else:
-            lsst.log.info("Weighted")
+            lsst.log.debug("Weighted")
             length, results = self.findLength(a2, sigma*sigma)
             if not results.converged:
                 lsst.log.info(results.flag)
