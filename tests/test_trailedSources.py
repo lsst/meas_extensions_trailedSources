@@ -26,6 +26,7 @@ import unittest
 import lsst.utils.tests
 import lsst.meas.extensions.trailedSources
 from scipy.optimize import check_grad
+import lsst.afw.table as afwTable
 from lsst.meas.base.tests import AlgorithmTestCase
 from lsst.meas.extensions.trailedSources import SingleFrameNaiveTrailPlugin as sfntp
 from lsst.meas.extensions.trailedSources import VeresModel
@@ -297,6 +298,57 @@ class TrailedSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
 
         # Make sure measurement flag is False
         self.assertFalse(record.get("ext_trailedSources_Veres_flag"))
+
+    def testMonteCarlo(self):
+        """Test the uncertainties in trail measurements from NaivePlugin
+        """
+        # Adapted from lsst.meas.base
+
+        # Set up Naive measurement and dependencies.
+        task = self.makeTrailedSourceMeasurementTask(
+            plugin="ext_trailedSources_Naive",
+            dependencies=("base_SdssCentroid", "base_SdssShape")
+        )
+
+        nSamples = 2000
+        catalog = afwTable.SourceCatalog(task.schema)
+        sample = 0
+        seed = 0
+        while sample < nSamples:
+            seed += 1
+            exp, cat = self.dataset.realize(100.0, task.schema, randomSeed=seed)
+            rec = cat[0]
+            task.run(cat, exp)
+
+            # Accuracy of this measurement is entirely dependent on shape and
+            # centroiding. Skip when shape measurement fails.
+            if rec['base_SdssShape_flag']:
+                continue
+            catalog.append(rec)
+            sample += 1
+
+        catalog = catalog.copy(deep=True)
+        nameBase = "ext_trailedSources_Naive_"
+
+        # Currently, the errors don't include covariances, so just make sure
+        # we're close or at least over estimate
+        length = catalog[nameBase+"length"]
+        lengthErr = catalog[nameBase+"lengthErr"]
+        lengthStd = np.nanstd(length)
+        lengthErrMean = np.nanmean(lengthErr)
+        diff = (lengthErrMean - lengthStd) / lengthErrMean
+        self.assertGreater(diff, -0.1)
+        self.assertLess(diff, 0.5)
+
+        angle = catalog[nameBase+"angle"]
+        if (np.max(angle) - np.min(angle)) > np.pi/2:
+            angle = angle % np.pi  # Wrap if bimodal
+        angleErr = catalog[nameBase+"angleErr"]
+        angleStd = np.nanstd(angle)
+        angleErrMean = np.nanmean(angleErr)
+        diff = (angleErrMean - angleStd) / angleErrMean
+        self.assertGreater(diff, -0.1)
+        self.assertLess(diff, 0.6)
 
 
 class TestMemory(lsst.utils.tests.MemoryTestCase):
