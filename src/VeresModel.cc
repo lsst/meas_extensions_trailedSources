@@ -92,6 +92,43 @@ std::vector<double> VeresModel::gradient(std::vector<double> const& params) cons
     return gradChiSq;
 }
 
+std::tuple<double, std::vector<double>> VeresModel::computeFluxWithGradient(std::vector<double> const& params) const {
+
+    double xc = params[0];     // Centroid x
+    double yc = params[1];     // Centroid y
+    // double flux = params[2];   // Flux (in this case, always 1)
+    double length = params[3]; // Trail length
+    double theta = params[4];  // Angle from +x-axis
+
+    // Compute the flux and gradient wrt the other model parameters
+    double m2 = 0.0;  // sum_i model_i*model_i
+    double md = 0.0;  // sum_i model_i*data_i
+    std::vector<double> gradmd = {0.0, 0.0, 0.0, 0.0, 0.0};  // sum_i (gradModel_(i,k)*data_i)
+    std::vector<double> gradmm = {0.0, 0.0, 0.0, 0.0, 0.0};  // sum_i (gradModel_(i,k)*model_i)
+    for (int yIndex = 0, yp = _bbox.getBeginY(); yIndex < _bbox.getHeight(); ++yIndex, ++yp) {
+        ImageF::Array::Reference dataRow = _data[yIndex];
+        for (int xIndex = 0, xp = _bbox.getBeginX(); xIndex < _bbox.getWidth(); ++xIndex, ++xp) {
+            double data = dataRow[xIndex];
+            double model = _computeModel(xp, yp, xc, yc, 1.0, length, theta);
+            std::array<double, 5> gradModel = _computeGradient(xp, yp, xc, yc, 1.0, length, theta);
+            m2 += model*model;
+            md += model*dataRow[xIndex];
+            for (int k=0; k<5; ++k) {
+                gradmd[k] += gradModel[k] * data;
+                gradmm[k] += gradModel[k] * model;
+            }
+        }
+    }
+    double flux = md / m2;
+    std::vector<double> gradFlux = {0.0, 0.0, 0.0, 0.0, 0.0};
+    for (int k=0; k<5; ++k) {
+        gradFlux[k] = (gradmd[k] - 2.0*flux*gradmm[k]) / m2;
+    }
+    gradFlux[2] = 0.0;  // Make dfluxdflux = 0
+    std::tuple<double, std::vector<double>> results = std::make_tuple(flux, gradFlux);
+    return results;
+}
+
 std::shared_ptr<ImageF> VeresModel::computeModelImage(std::vector<double> const& params) const {
     double xc = params[0];     // Centroid x
     double yc = params[1];     // Centroid y

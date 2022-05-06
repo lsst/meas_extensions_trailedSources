@@ -25,7 +25,12 @@ import numpy as np
 import unittest
 import lsst.utils.tests
 import lsst.meas.extensions.trailedSources
+from scipy.optimize import check_grad
+import lsst.afw.table as afwTable
 from lsst.meas.base.tests import AlgorithmTestCase
+from lsst.meas.extensions.trailedSources import SingleFrameNaiveTrailPlugin as sfntp
+from lsst.meas.extensions.trailedSources import VeresModel
+from lsst.meas.extensions.trailedSources.utils import getMeasurementCutout
 from lsst.utils.tests import classParameters
 
 import lsst.log
@@ -120,6 +125,49 @@ class TrailedSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
         del self.trail
         del self.dataset
 
+    @staticmethod
+    def transformMoments(Ixx, Iyy, Ixy):
+        """Transform second-moments to semi-major and minor axis.
+        """
+        xmy = Ixx - Iyy
+        xpy = Ixx + Iyy
+        xmy2 = xmy*xmy
+        xy2 = Ixy*Ixy
+        a2 = 0.5 * (xpy + np.sqrt(xmy2 + 4.0*xy2))
+        b2 = 0.5 * (xpy - np.sqrt(xmy2 + 4.0*xy2))
+        return a2, b2
+
+    @staticmethod
+    def f_length(x):
+        return sfntp.findLength(*x)[0]
+
+    @staticmethod
+    def g_length(x):
+        return sfntp.findLength(*x)[1]
+
+    @staticmethod
+    def f_flux(x, model):
+        return model.computeFluxWithGradient(x)[0]
+
+    @staticmethod
+    def g_flux(x, model):
+        return model.computeFluxWithGradient(x)[1]
+
+    @staticmethod
+    def central_difference(func, x, *args, h=1e-8):
+        result = np.zeros(len(x))
+        for i in range(len(x)):
+            xp = x.copy()
+            xp[i] += h
+            fp = func(xp, *args)
+
+            xm = x.copy()
+            xm[i] -= h
+            fm = func(xm, *args)
+            result[i] = (fp - fm) / (2*h)
+
+        return result
+
     def makeTrailedSourceMeasurementTask(self, plugin=None, dependencies=(),
                                          config=None, schema=None, algMetadata=None):
         """Set up a measurement task for a trailed source plugin.
@@ -175,6 +223,22 @@ class TrailedSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
                                      atol=np.arctan(1/length), rtol=None)
         self.assertFloatsAlmostEqual(flux, self.trail.instFlux, atol=None, rtol=0.1)
 
+        # Test function gradients versus finite difference derivatives
+        # Do length first
+        Ixx, Iyy, Ixy = record.getShape().getParameterVector()
+        a2, b2 = self.transformMoments(Ixx, Iyy, Ixy)
+        self.assertLessEqual(check_grad(self.f_length, self.g_length, [a2, b2]), 1e-6)
+
+        # Now flux gradient
+        xc = record.get("base_SdssShape_x")
+        yc = record.get("base_SdssShape_y")
+        params = np.array([xc, yc, 1.0, length, theta])
+        cutout = getMeasurementCutout(record, exposure)
+        model = VeresModel(cutout)
+        gradNum = self.central_difference(self.f_flux, params, model, h=9e-5)
+        gradMax = np.max(np.abs(gradNum - self.g_flux(params, model)))
+        self.assertLessEqual(gradMax, 1e-5)
+
         # Check test setup
         self.assertNotEqual(length, self.trail.length)
         self.assertNotEqual(theta, self.trail.angle)
@@ -214,6 +278,15 @@ class TrailedSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
                                      atol=np.arctan(1/length), rtol=None)
         self.assertFloatsAlmostEqual(flux, self.trail.instFlux, atol=None, rtol=0.1)
 
+        xc = record.get("ext_trailedSources_Veres_centroid_x")
+        yc = record.get("ext_trailedSources_Veres_centroid_y")
+        params = np.array([xc, yc, flux, length, theta])
+        cutout = getMeasurementCutout(record, exposure)
+        model = VeresModel(cutout)
+        gradNum = self.central_difference(model, params, h=1e-6)
+        gradMax = np.max(np.abs(gradNum - model.gradient(params)))
+        self.assertLessEqual(gradMax, 1e-5)
+
         # Make sure test setup is working as expected
         self.assertNotEqual(length, self.trail.length)
         self.assertNotEqual(theta, self.trail.angle)
@@ -225,6 +298,57 @@ class TrailedSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
 
         # Make sure measurement flag is False
         self.assertFalse(record.get("ext_trailedSources_Veres_flag"))
+
+    def testMonteCarlo(self):
+        """Test the uncertainties in trail measurements from NaivePlugin
+        """
+        # Adapted from lsst.meas.base
+
+        # Set up Naive measurement and dependencies.
+        task = self.makeTrailedSourceMeasurementTask(
+            plugin="ext_trailedSources_Naive",
+            dependencies=("base_SdssCentroid", "base_SdssShape")
+        )
+
+        nSamples = 2000
+        catalog = afwTable.SourceCatalog(task.schema)
+        sample = 0
+        seed = 0
+        while sample < nSamples:
+            seed += 1
+            exp, cat = self.dataset.realize(100.0, task.schema, randomSeed=seed)
+            rec = cat[0]
+            task.run(cat, exp)
+
+            # Accuracy of this measurement is entirely dependent on shape and
+            # centroiding. Skip when shape measurement fails.
+            if rec['base_SdssShape_flag']:
+                continue
+            catalog.append(rec)
+            sample += 1
+
+        catalog = catalog.copy(deep=True)
+        nameBase = "ext_trailedSources_Naive_"
+
+        # Currently, the errors don't include covariances, so just make sure
+        # we're close or at least over estimate
+        length = catalog[nameBase+"length"]
+        lengthErr = catalog[nameBase+"lengthErr"]
+        lengthStd = np.nanstd(length)
+        lengthErrMean = np.nanmean(lengthErr)
+        diff = (lengthErrMean - lengthStd) / lengthErrMean
+        self.assertGreater(diff, -0.1)
+        self.assertLess(diff, 0.5)
+
+        angle = catalog[nameBase+"angle"]
+        if (np.max(angle) - np.min(angle)) > np.pi/2:
+            angle = angle % np.pi  # Wrap if bimodal
+        angleErr = catalog[nameBase+"angleErr"]
+        angleStd = np.nanstd(angle)
+        angleErrMean = np.nanmean(angleErr)
+        diff = (angleErrMean - angleStd) / angleErrMean
+        self.assertGreater(diff, -0.1)
+        self.assertLess(diff, 0.6)
 
 
 class TestMemory(lsst.utils.tests.MemoryTestCase):
