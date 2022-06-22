@@ -30,7 +30,6 @@ from lsst.geom import Point2D
 from lsst.meas.base.pluginRegistry import register
 from lsst.meas.base import SingleFramePlugin, SingleFramePluginConfig
 from lsst.meas.base import FlagHandler, FlagDefinitionList, SafeCentroidExtractor
-from lsst.meas.base import MeasurementError
 
 from ._trailedSources import VeresModel
 from .utils import getMeasurementCutout
@@ -117,7 +116,7 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         self.keyAngleErr = schema.addField(name + "_angleErr", type="D", doc="Trail angle error.")
 
         flagDefs = FlagDefinitionList()
-        flagDefs.addFailureFlag("No trailed-source measured")
+        self.FAILURE = flagDefs.addFailureFlag("No trailed-source measured")
         self.NO_FLUX = flagDefs.add("flag_noFlux", "No suitable prior flux measurement")
         self.NO_CONVERGE = flagDefs.add("flag_noConverge", "The root finder did not converge")
         self.NO_SIGMA = flagDefs.add("flag_noSigma", "No PSF width (sigma)")
@@ -147,7 +146,9 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         yc = measRecord.get("base_SdssShape_y")
         if not np.isfinite(xc) or not np.isfinite(yc):
             xc, yc = self.centroidExtractor(measRecord, self.flagHandler)
-            raise MeasurementError(self.SAFE_CENTROID.doc, self.SAFE_CENTROID.number)
+            self.flagHandler.setValue(measRecord, self.SAFE_CENTROID.number)
+            self.flagHandler.setValue(measRecord, self.FAILURE.number)
+            return
 
         ra, dec = self.computeRaDec(exposure, xc, yc)
 
@@ -170,7 +171,9 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
             length, gradLength, results = self.findLength(a2, b2)
             if not results.converged:
                 lsst.log.info(results.flag)
-                raise MeasurementError(self.NO_CONVERGE.doc, self.NO_CONVERGE.number)
+                self.flagHandler.setValue(measRecord, self.NO_CONVERGE.number)
+                self.flagHandler.setValue(measRecord, self.FAILURE.number)
+                return
 
         # Compute the angle of the trail from the x-axis
         theta = 0.5 * np.arctan2(2.0 * Ixy, xmy)
@@ -197,7 +200,9 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
             if np.isfinite(measRecord.getApInstFlux()):
                 flux = measRecord.getApInstFlux()
             else:
-                raise MeasurementError(self.NO_FLUX.doc, self.NO_FLUX.number)
+                self.flagHandler.setValue(measRecord, self.NO_FLUX.number)
+                self.flagHandler.setValue(measRecord, self.FAILURE.number)
+                return
 
         # Propogate errors from second moments and centroid
         IxxErr2, IyyErr2, IxyErr2 = np.diag(measRecord.getShapeErr())

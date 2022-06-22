@@ -29,7 +29,6 @@ from lsst.pex.config import Field
 from lsst.meas.base.pluginRegistry import register
 from lsst.meas.base import SingleFramePlugin, SingleFramePluginConfig
 from lsst.meas.base import FlagHandler, FlagDefinitionList, SafeCentroidExtractor
-from lsst.meas.base import MeasurementError
 
 from ._trailedSources import VeresModel
 from .NaivePlugin import SingleFrameNaiveTrailPlugin
@@ -112,7 +111,7 @@ class SingleFrameVeresTrailPlugin(SingleFramePlugin):
         self.keyRChiSq = schema.addField(name + "_rChiSq", type="D", doc="Reduced chi-squared of fit")
 
         flagDefs = FlagDefinitionList()
-        flagDefs.addFailureFlag("No trailed-sources measured")
+        self.FAILURE = flagDefs.addFailureFlag("No trailed-sources measured")
         self.NON_CONVERGE = flagDefs.add("flag_nonConvergence", "Optimizer did not converge")
         self.NO_NAIVE = flagDefs.add("flag_noNaive", "Naive measurement contains NaNs")
         self.flagHandler = FlagHandler.addFields(schema, name, flagDefs)
@@ -141,7 +140,9 @@ class SingleFrameVeresTrailPlugin(SingleFramePlugin):
         length = measRecord.get("ext_trailedSources_Naive_length")
         theta = measRecord.get("ext_trailedSources_Naive_angle")
         if not np.isfinite(flux) or not np.isfinite(length) or not np.isfinite(theta):
-            raise MeasurementError(self.NO_NAIVE.doc, self.NO_NAIVE.number)
+            self.flagHandler.setValue(measRecord, self.NO_NAIVE.number)
+            self.flagHandler.setValue(measRecord, self.FAILURE.number)
+            return
 
         # Get exposure cutout
         # sigma = exposure.getPsf().getSigma()
@@ -158,7 +159,9 @@ class SingleFrameVeresTrailPlugin(SingleFramePlugin):
 
         # Check if optimizer converged
         if not results.success:
-            raise MeasurementError(self.NON_CONVERGE.doc, self.NON_CONVERGE.number)
+            self.flagHandler.setValue(measRecord, self.NON_CONVERGE.number)
+            self.flagHandler.setValue(measRecord, self.FAILURE.number)
+            return
 
         # Calculate end points and reduced chi-squared
         xc_fit, yc_fit, flux_fit, length_fit, theta_fit = results.x
