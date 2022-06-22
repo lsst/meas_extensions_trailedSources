@@ -33,7 +33,6 @@ from lsst.meas.extensions.trailedSources import VeresModel
 from lsst.meas.extensions.trailedSources.utils import getMeasurementCutout
 from lsst.utils.tests import classParameters
 
-import lsst.log
 
 # Trailed-source length, angle, and centroid.
 rng = np.random.default_rng(432)

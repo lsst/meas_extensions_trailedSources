@@ -94,8 +94,8 @@ class SingleFrameVeresTrailPlugin(SingleFramePlugin):
         # Make sure this always runs after NaivePlugin.
         return SingleFrameNaiveTrailPlugin.getExecutionOrder() + 0.1
 
-    def __init__(self, config, name, schema, metadata):
-        super().__init__(config, name, schema, metadata)
+    def __init__(self, config, name, schema, metadata, logName=None):
+        super().__init__(config, name, schema, metadata, logName=logName)
 
         self.keyXC = schema.addField(
             name + "_centroid_x", type="D", doc="Trail centroid X coordinate.", units="pixel")
