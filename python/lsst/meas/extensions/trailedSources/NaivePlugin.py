@@ -25,6 +25,7 @@ import logging
 import numpy as np
 import scipy.optimize as sciOpt
 from scipy.special import erf
+from math import sqrt
 
 from lsst.geom import Point2D
 from lsst.meas.base.pluginRegistry import register
@@ -161,8 +162,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         xpy = Ixx + Iyy
         xmy2 = xmy*xmy
         xy2 = Ixy*Ixy
-        a2 = 0.5 * (xpy + np.sqrt(xmy2 + 4.0*xy2))
-        b2 = 0.5 * (xpy - np.sqrt(xmy2 + 4.0*xy2))
+        a2 = 0.5 * (xpy + sqrt(xmy2 + 4.0*xy2))
+        b2 = 0.5 * (xpy - sqrt(xmy2 + 4.0*xy2))
 
         # Measure the trail length
         # Check if the second-moments are weighted
@@ -215,7 +216,7 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         xcErr2, ycErr2 = np.diag(measRecord.getCentroidErr())
 
         # Error in length
-        desc = np.sqrt(xmy2 + 4.0*xy2)  # Descriminant^1/2 of EV equation
+        desc = sqrt(xmy2 + 4.0*xy2)  # Descriminant^1/2 of EV equation
         da2dIxx = 0.5*(1.0 + (xmy/desc))
         da2dIyy = 0.5*(1.0 - (xmy/desc))
         da2dIxy = 2.0*Ixy / desc
@@ -227,21 +228,21 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         # Error in theta
         dThetadIxx = -Ixy / (xmy2 + 4.0*xy2)  # dThetadIxx = -dThetadIyy
         dThetadIxy = xmy / (xmy2 + 4.0*xy2)
-        thetaErr = np.sqrt(dThetadIxx*dThetadIxx*(IxxErr2 + IyyErr2) + dThetadIxy*dThetadIxy*IxyErr2)
+        thetaErr = sqrt(dThetadIxx*dThetadIxx*(IxxErr2 + IyyErr2) + dThetadIxy*dThetadIxy*IxyErr2)
 
         # Error in flux
         dFdxc, dFdyc, _, dFdL, dFdTheta = gradFlux
-        fluxErr = np.sqrt(dFdL*dFdL*lengthErr*lengthErr + dFdTheta*dFdTheta*thetaErr*thetaErr
-                          + dFdxc*dFdxc*xcErr2 + dFdyc*dFdyc*ycErr2)
+        fluxErr = sqrt(dFdL*dFdL*lengthErr*lengthErr + dFdTheta*dFdTheta*thetaErr*thetaErr
+                       + dFdxc*dFdxc*xcErr2 + dFdyc*dFdyc*ycErr2)
 
         # Errors in end-points
         dxdradius = np.cos(theta)
         dydradius = np.sin(theta)
         radiusErr2 = lengthErr*lengthErr/4.0
-        xErr2 = np.sqrt(xcErr2 + radiusErr2*dxdradius*dxdradius + thetaErr*thetaErr*dxdtheta*dxdtheta)
-        yErr2 = np.sqrt(ycErr2 + radiusErr2*dydradius*dydradius + thetaErr*thetaErr*dydtheta*dydtheta)
-        x0Err = np.sqrt(xErr2)  # Same for x1
-        y0Err = np.sqrt(yErr2)  # Same for y1
+        xErr2 = sqrt(xcErr2 + radiusErr2*dxdradius*dxdradius + thetaErr*thetaErr*dxdtheta*dxdtheta)
+        yErr2 = sqrt(ycErr2 + radiusErr2*dydradius*dydradius + thetaErr*thetaErr*dydtheta*dydtheta)
+        x0Err = sqrt(xErr2)  # Same for x1
+        y0Err = sqrt(yErr2)  # Same for y1
 
         # Set flags
         measRecord.set(self.keyRa, ra)
