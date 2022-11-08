@@ -38,7 +38,7 @@ using std::sin, std::cos, std::sqrt, std::exp, std::erf;
 
 VeresModel::VeresModel(
     ExposureF const& data
-) : _sigma(data.getPsf()->computeShape().getTraceRadius()),
+) : _sigma(data.getPsf()->computeShape(data.getPsf()->getAveragePosition()).getTraceRadius()),
     _bbox(data.getBBox()),
     _data(data.getMaskedImage().getImage()->getArray()),
     _variance(data.getMaskedImage().getVariance()->getArray()) {}
