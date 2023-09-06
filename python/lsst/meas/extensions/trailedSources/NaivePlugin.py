@@ -150,8 +150,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         yc = measRecord.get("base_SdssShape_y")
         if not np.isfinite(xc) or not np.isfinite(yc):
             xc, yc = self.centroidExtractor(measRecord, self.flagHandler)
-            self.flagHandler.setValue(measRecord, self.SAFE_CENTROID.number)
-            self.flagHandler.setValue(measRecord, self.FAILURE.number)
+            self.flagHandler.setValue(measRecord, self.SAFE_CENTROID.number, True)
+            self.flagHandler.setValue(measRecord, self.FAILURE.number, True)
             return
 
         ra, dec = self.computeRaDec(exposure, xc, yc)
@@ -175,8 +175,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
             length, gradLength, results = self.findLength(a2, b2)
             if not results.converged:
                 self.log.info("Results not converged: %s", results.flag)
-                self.flagHandler.setValue(measRecord, self.NO_CONVERGE.number)
-                self.flagHandler.setValue(measRecord, self.FAILURE.number)
+                self.flagHandler.setValue(measRecord, self.NO_CONVERGE.number, True)
+                self.flagHandler.setValue(measRecord, self.FAILURE.number, True)
                 return
 
         # Compute the angle of the trail from the x-axis
@@ -204,8 +204,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
             if np.isfinite(measRecord.getApInstFlux()):
                 flux = measRecord.getApInstFlux()
             else:
-                self.flagHandler.setValue(measRecord, self.NO_FLUX.number)
-                self.flagHandler.setValue(measRecord, self.FAILURE.number)
+                self.flagHandler.setValue(measRecord, self.NO_FLUX.number, True)
+                self.flagHandler.setValue(measRecord, self.FAILURE.number, True)
                 return
 
         # Propogate errors from second moments and centroid
