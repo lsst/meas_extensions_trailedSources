@@ -27,7 +27,7 @@ import scipy.optimize as sciOpt
 from scipy.special import erf
 from math import sqrt
 
-from lsst.geom import Point2D
+from lsst.geom import Point2D, Point2I
 from lsst.meas.base.pluginRegistry import register
 from lsst.meas.base import SingleFramePlugin, SingleFramePluginConfig
 from lsst.meas.base import FlagHandler, FlagDefinitionList, SafeCentroidExtractor
@@ -124,6 +124,7 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         self.NO_CONVERGE = flagDefs.add("flag_noConverge", "The root finder did not converge")
         self.NO_SIGMA = flagDefs.add("flag_noSigma", "No PSF width (sigma)")
         self.SAFE_CENTROID = flagDefs.add("flag_safeCentroid", "Fell back to safe centroid extractor")
+        self.EDGE = flagDefs.add("flag_edge", "Trail contains edge pixels or extends off chip")
         self.flagHandler = FlagHandler.addFields(schema, name, flagDefs)
 
         self.centriodExtractor = SafeCentroidExtractor(schema, name)
@@ -150,8 +151,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         yc = measRecord.get("base_SdssShape_y")
         if not np.isfinite(xc) or not np.isfinite(yc):
             xc, yc = self.centroidExtractor(measRecord, self.flagHandler)
-            self.flagHandler.setValue(measRecord, self.SAFE_CENTROID.number)
-            self.flagHandler.setValue(measRecord, self.FAILURE.number)
+            self.flagHandler.setValue(measRecord, self.SAFE_CENTROID.number, True)
+            self.flagHandler.setValue(measRecord, self.FAILURE.number, True)
             return
 
         ra, dec = self.computeRaDec(exposure, xc, yc)
@@ -175,8 +176,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
             length, gradLength, results = self.findLength(a2, b2)
             if not results.converged:
                 self.log.info("Results not converged: %s", results.flag)
-                self.flagHandler.setValue(measRecord, self.NO_CONVERGE.number)
-                self.flagHandler.setValue(measRecord, self.FAILURE.number)
+                self.flagHandler.setValue(measRecord, self.NO_CONVERGE.number, True)
+                self.flagHandler.setValue(measRecord, self.FAILURE.number, True)
                 return
 
         # Compute the angle of the trail from the x-axis
@@ -191,6 +192,25 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         x1 = xc + dydtheta
         y1 = yc + dxdtheta
 
+        # Check whether trail extends off the edge of the exposure
+        if not (exposure.getBBox().beginX <= x0 <= exposure.getBBox().endX
+                and exposure.getBBox().beginX <= x1 <= exposure.getBBox().endX
+                and exposure.getBBox().beginY <= y0 <= exposure.getBBox().endY
+                and exposure.getBBox().beginY <= y1 <= exposure.getBBox().endY):
+
+            self.flagHandler.setValue(measRecord, self.EDGE.number, True)
+
+        else:
+            # Check whether the beginning or end point of the trail has the
+            # edge flag set. The end points are not whole pixel values, so
+            # the pixel value must be rounded.
+            if exposure.mask[Point2I(int(x0), int(y0))] and exposure.mask[Point2I(int(x1), int(y1))]:
+                if ((exposure.mask[Point2I(int(x0), int(y0))] & exposure.mask.getPlaneBitMask('EDGE') != 0)
+                        or (exposure.mask[Point2I(int(x1), int(y1))]
+                            & exposure.mask.getPlaneBitMask('EDGE') != 0)):
+
+                    self.flagHandler.setValue(measRecord, self.EDGE.number, True)
+
         # Get a cutout of the object from the exposure
         cutout = getMeasurementCutout(measRecord, exposure)
 
@@ -204,8 +224,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
             if np.isfinite(measRecord.getApInstFlux()):
                 flux = measRecord.getApInstFlux()
             else:
-                self.flagHandler.setValue(measRecord, self.NO_FLUX.number)
-                self.flagHandler.setValue(measRecord, self.FAILURE.number)
+                self.flagHandler.setValue(measRecord, self.NO_FLUX.number, True)
+                self.flagHandler.setValue(measRecord, self.FAILURE.number, True)
                 return
 
         # Propogate errors from second moments and centroid
