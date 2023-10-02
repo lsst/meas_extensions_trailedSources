@@ -27,7 +27,7 @@ import scipy.optimize as sciOpt
 from scipy.special import erf
 from math import sqrt
 
-from lsst.geom import Point2D
+from lsst.geom import Point2D, Point2I
 from lsst.meas.base.pluginRegistry import register
 from lsst.meas.base import SingleFramePlugin, SingleFramePluginConfig
 from lsst.meas.base import FlagHandler, FlagDefinitionList, SafeCentroidExtractor
@@ -124,7 +124,7 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         self.NO_CONVERGE = flagDefs.add("flag_noConverge", "The root finder did not converge")
         self.NO_SIGMA = flagDefs.add("flag_noSigma", "No PSF width (sigma)")
         self.SAFE_CENTROID = flagDefs.add("flag_safeCentroid", "Fell back to safe centroid extractor")
-        self.EDGE = flagDefs.add("flag_edge", "trail contains edge pixels or extends off chip")
+        self.EDGE = flagDefs.add("flag_edge", "Trail contains edge pixels or extends off chip")
         self.flagHandler = FlagHandler.addFields(schema, name, flagDefs)
 
         self.centriodExtractor = SafeCentroidExtractor(schema, name)
@@ -192,21 +192,24 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         x1 = xc + dydtheta
         y1 = yc + dxdtheta
 
-        if not (0 <= x0 <= exposure.getBBox().endX and
-                0 <= x1 <= exposure.getBBox().endX and
-                0 <= y0 <= exposure.getBBox().endY and
-                0 <= y1 <= exposure.getBBox().endY):
+        # Check whether trail extends off the edge of the exposure
+        if not (exposure.getBBox().beginX <= x0 <= exposure.getBBox().endX
+                and exposure.getBBox().beginX <= x1 <= exposure.getBBox().endX
+                and exposure.getBBox().beginY <= y0 <= exposure.getBBox().endY
+                and exposure.getBBox().beginY <= y1 <= exposure.getBBox().endY):
 
             self.flagHandler.setValue(measRecord, self.EDGE.number, True)
 
         else:
-
-            if exposure.mask[np.round(x0), np.round(y0)] and exposure.mask[np.round(x1), np.round(y1)]:
-                if((exposure.mask[np.round(x0), np.round(y0)] & exposure.mask.getPlaneBitMask('EDGE')!= 0)
-                        or (exposure.mask[np.round(x1), np.round(y1)] & exposure.mask.getPlaneBitMask('EDGE')!= 0)):
+            # Check whether the beginning or end point of the trail has the
+            # edge flag set. The end points are not whole pixel values, so
+            # the pixel value must be rounded.
+            if exposure.mask[Point2I(int(x0), int(y0))] and exposure.mask[Point2I(int(x1), int(y1))]:
+                if ((exposure.mask[Point2I(int(x0), int(y0))] & exposure.mask.getPlaneBitMask('EDGE') != 0)
+                        or (exposure.mask[Point2I(int(x1), int(y1))]
+                            & exposure.mask.getPlaneBitMask('EDGE') != 0)):
 
                     self.flagHandler.setValue(measRecord, self.EDGE.number, True)
-
 
         # Get a cutout of the object from the exposure
         cutout = getMeasurementCutout(measRecord, exposure)
