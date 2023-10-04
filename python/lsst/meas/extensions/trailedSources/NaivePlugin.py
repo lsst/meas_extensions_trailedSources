@@ -196,14 +196,14 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         # if not (exposure.getBBox().beginX <= x0 <= exposure.getBBox().endX
         #        and exposure.getBBox().beginX <= x1 <= exposure.getBBox().endX
         #        and exposure.getBBox().beginY <= y0 <= exposure.getBBox().endY
-        #        and exposure.getBBox().beginY <= y1 <= exposure.getBBox().endY):
+        #      and exposure.getBBox().beginY <= y1 <= exposure.getBBox().endY):
 
         #    self.flagHandler.setValue(measRecord, self.EDGE.number, True)
 
         # else:
-            # Check whether the beginning or end point of the trail has the
-            # edge flag set. The end points are not whole pixel values, so
-            # the pixel value must be rounded.
+        # Check whether the beginning or end point of the trail has the
+        # edge flag set. The end points are not whole pixel values, so
+        # the pixel value must be rounded.
         if exposure.mask[Point2I(int(x0), int(y0))] and exposure.mask[Point2I(int(x1), int(y1))]:
             if ((exposure.mask[Point2I(int(x0), int(y0))] & exposure.mask.getPlaneBitMask('EDGE') != 0)
                     or (exposure.mask[Point2I(int(x1), int(y1))]
