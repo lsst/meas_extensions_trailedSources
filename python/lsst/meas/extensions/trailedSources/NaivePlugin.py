@@ -192,7 +192,6 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         x1 = xc + dydtheta
         y1 = yc + dxdtheta
 
-
         # Check whether trail extends off the edge of the exposure
         if not (exposure.getBBox().beginX <= x0 <= exposure.getBBox().endX
                 and exposure.getBBox().beginX <= x1 <= exposure.getBBox().endX
