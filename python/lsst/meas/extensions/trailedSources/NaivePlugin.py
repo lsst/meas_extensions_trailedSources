@@ -127,7 +127,7 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         self.EDGE = flagDefs.add("flag_edge", "Trail contains edge pixels or extends off chip")
         self.flagHandler = FlagHandler.addFields(schema, name, flagDefs)
 
-        self.centriodExtractor = SafeCentroidExtractor(schema, name)
+        self.centroidExtractor = SafeCentroidExtractor(schema, name)
         self.log = logging.getLogger(self.logName)
 
     def measure(self, measRecord, exposure):
