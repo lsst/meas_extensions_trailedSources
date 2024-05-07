@@ -125,6 +125,7 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         self.NO_SIGMA = flagDefs.add("flag_noSigma", "No PSF width (sigma)")
         self.SAFE_CENTROID = flagDefs.add("flag_safeCentroid", "Fell back to safe centroid extractor")
         self.EDGE = flagDefs.add("flag_edge", "Trail contains edge pixels or extends off chip")
+        self.SHAPE = flagDefs.add("flag_shape", "Shape flag is set, trail not calculated")
         self.flagHandler = FlagHandler.addFields(schema, name, flagDefs)
 
         self.centroidExtractor = SafeCentroidExtractor(schema, name)
@@ -156,6 +157,13 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
             return
 
         ra, dec = self.computeRaDec(exposure, xc, yc)
+
+        if measRecord.getShapeFlag():
+            self.log.warning("Shape flag is set for measRecord: %s. Trail measurement "
+                             "will not be made.", measRecord.getId())
+            self.flagHandler.setValue(measRecord, self.FAILURE.number, True)
+            self.flagHandler.setValue(measRecord, self.SHAPE.number, True)
+            return
 
         # Transform the second-moments to semi-major and minor axes
         Ixx, Iyy, Ixy = measRecord.getShape().getParameterVector()
@@ -352,7 +360,7 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         # Given a 'c' in (c_min, c_max], the root is contained in (0,1].
         # c_min is given by the case: Ixx == Iyy, ie. a point source.
         # c_max is given by the limit Ixx >> Iyy.
-        # Emperically, 0.001 is a suitable lower bound, assuming Ixx > Iyy.
+        # Empirically, 0.001 is a suitable lower bound, assuming Ixx > Iyy.
         z, results = sciOpt.brentq(lambda z: cls._computeSecondMomentDiff(z, c),
                                    0.001, 1.0, full_output=True)
 
