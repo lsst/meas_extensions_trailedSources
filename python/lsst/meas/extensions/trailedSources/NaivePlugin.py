@@ -124,8 +124,11 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         self.NO_CONVERGE = flagDefs.add("flag_noConverge", "The root finder did not converge")
         self.NO_SIGMA = flagDefs.add("flag_noSigma", "No PSF width (sigma)")
         self.SAFE_CENTROID = flagDefs.add("flag_safeCentroid", "Fell back to safe centroid extractor")
-        self.EDGE = flagDefs.add("flag_edge", "Trail contains edge pixels or extends off chip")
-        self.SHAPE = flagDefs.add("flag_shape", "Shape flag is set, trail not calculated")
+        self.EDGE = flagDefs.add("flag_edge", "Trail contains edge pixels")
+        self.OFFIMAGE = flagDefs.add("flag_off_image", "Trail extends off image")
+        self.NAN = flagDefs.add("flag_nan", "One or more trail coordinates are missing")
+        self.SUSPECT_LONG_TRAIL = flagDefs.add("flag_suspect_long_trail",
+                                               "Trail length is greater than three times the psf radius")
         self.flagHandler = FlagHandler.addFields(schema, name, flagDefs)
 
         self.centroidExtractor = SafeCentroidExtractor(schema, name)
@@ -145,7 +148,6 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         --------
         lsst.meas.base.SingleFramePlugin.measure
         """
-
         # Get the SdssShape centroid or fall back to slot
         # There are currently no centroid errors for SdssShape
         xc = measRecord.get("base_SdssShape_x")
@@ -200,24 +202,7 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         x1 = xc + dydtheta
         y1 = yc + dxdtheta
 
-        # Check whether trail extends off the edge of the exposure
-        if not (exposure.getBBox().beginX <= x0 <= exposure.getBBox().endX
-                and exposure.getBBox().beginX <= x1 <= exposure.getBBox().endX
-                and exposure.getBBox().beginY <= y0 <= exposure.getBBox().endY
-                and exposure.getBBox().beginY <= y1 <= exposure.getBBox().endY):
-
-            self.flagHandler.setValue(measRecord, self.EDGE.number, True)
-
-        else:
-            # Check whether the beginning or end point of the trail has the
-            # edge flag set. The end points are not whole pixel values, so
-            # the pixel value must be rounded.
-            if exposure.mask[Point2I(int(x0), int(y0))] and exposure.mask[Point2I(int(x1), int(y1))]:
-                if ((exposure.mask[Point2I(int(x0), int(y0))] & exposure.mask.getPlaneBitMask('EDGE') != 0)
-                        or (exposure.mask[Point2I(int(x1), int(y1))]
-                            & exposure.mask.getPlaneBitMask('EDGE') != 0)):
-
-                    self.flagHandler.setValue(measRecord, self.EDGE.number, True)
+        self.check_trail(measRecord, exposure, x0, y0, x1, y1, length)
 
         # Get a cutout of the object from the exposure
         cutout = getMeasurementCutout(measRecord, exposure)
@@ -289,6 +274,79 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         measRecord.set(self.keyFluxErr, fluxErr)
         measRecord.set(self.keyLengthErr, lengthErr)
         measRecord.set(self.keyAngleErr, thetaErr)
+
+    def check_trail(self, measRecord, exposure, x0, y0, x1, y1, length):
+        """ Set flags for edge pixels, off chip, and nan trail coordinates and
+        flag if trail length is three times larger than psf.
+
+        Check if the coordinates of the beginning and ending of the trail fall
+        inside the exposures bounding box. If not, set the off_chip flag.
+        If the beginning or ending falls within a pixel marked as edge, set the
+        edge flag. If any of the coordinates happens to fall on a nan, then
+        set the nan flag.
+        Additionally, check if the trail is three times larger than the psf. If
+        so, set the suspect trail flag.
+
+        Parameters
+        ----------
+        measRecord: `lsst.afw.MeasurementRecord`
+            Record describing the object being measured.
+        exposure: `lsst.afw.Exposure`
+            Pixel data to be measured.
+
+        x0: `float`
+            x coordinate of the beginning of the trail.
+        y0: `float`
+            y coordinate of the beginning of the trail.
+        x1: `float`
+            x coordinate of the end of the trail.
+        y1: `float`
+            y coordinate of the end of the trail.
+        """
+        x_coords = [x0, x1]
+        y_coords = [y0, y1]
+
+        # Check if one of the end points of the trail sources is nan. If so,
+        # set the trailed source nan flag.
+        if np.isnan(x_coords).any() or np.isnan(y_coords).any():
+            self.flagHandler.setValue(measRecord, self.NAN.number, True)
+            x_coords = [x for x in x_coords if not np.isnan(x)]
+            y_coords = [y for y in y_coords if not np.isnan(y)]
+
+            # Check if the non-nan coordinates are within the bounding box
+            if not (all(exposure.getBBox().beginX <= x <= exposure.getBBox().endX for x in x_coords)
+                    and all(exposure.getBBox().beginY <= y <= exposure.getBBox().endY for y in y_coords)):
+                self.flagHandler.setValue(measRecord, self.EDGE.number, True)
+                self.flagHandler.setValue(measRecord, self.OFFIMAGE.number, True)
+            else:
+                # Check if edge is set for any of the pixel pairs. Do not
+                # check any that have a nan.
+                for (x_val, y_val) in zip(x_coords, y_coords):
+                    if x_val is not np.nan and y_val is not np.nan:
+                        if exposure.mask[Point2I(int(x_val),
+                                                 int(y_val))] & exposure.mask.getPlaneBitMask('EDGE') != 0:
+                            self.flagHandler.setValue(measRecord, self.EDGE.number, True)
+        # Check whether trail extends off the edge of the exposure. Allows nans
+        # as their location
+        elif not (all(exposure.getBBox().beginX <= x <= exposure.getBBox().endX for x in x_coords)
+                  and all(exposure.getBBox().beginY <= y <= exposure.getBBox().endY for y in y_coords)):
+            self.flagHandler.setValue(measRecord, self.EDGE.number, True)
+            self.flagHandler.setValue(measRecord, self.OFFIMAGE.number, True)
+        else:
+            # Check whether the beginning or end point of the trail has the
+            # edge flag set. The end points are not whole pixel values, so
+            # the pixel value must be rounded.
+            if exposure.mask[Point2I(int(x0), int(y0))] and exposure.mask[Point2I(int(x1), int(y1))]:
+                if ((exposure.mask[Point2I(int(x0), int(y0))] & exposure.mask.getPlaneBitMask('EDGE') != 0)
+                        or (exposure.mask[Point2I(int(x1), int(y1))]
+                            & exposure.mask.getPlaneBitMask('EDGE') != 0)):
+                    self.flagHandler.setValue(measRecord, self.EDGE.number, True)
+
+        psfShape = exposure.psf.computeShape(exposure.getBBox().getCenter())
+        psfRadius = psfShape.getDeterminantRadius()
+
+        if length > psfRadius*3.0:
+            self.flagHandler.setValue(measRecord, self.SUSPECT_LONG_TRAIL.number, True)
 
     def fail(self, measRecord, error=None):
         """Record failure
