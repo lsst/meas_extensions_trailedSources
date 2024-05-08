@@ -28,13 +28,13 @@ import lsst.meas.extensions.trailedSources
 from lsst.meas.base.tests import AlgorithmTestCase
 from lsst.utils.tests import classParameters
 from lsst.geom import Point2I, Point2D, Box2I, Extent2I
-
+from unittest.mock import patch
 
 # Trailed-source length, angle, and centroid coordinates.
-trail_lengths = np.array([5, 5, 10])
-trail_angles = np.array([100, 0, 5])
-trail_x_coords = np.array([100, 20, -20])
-trail_y_coords = np.array([100, 20, -30])
+trail_lengths = np.array([5, 5, 10, 4])
+trail_angles = np.array([100, 0, 5, 4])
+trail_x_coords = np.array([100, 20, -20, 90])
+trail_y_coords = np.array([100, 20, -30, 100])
 
 
 class TrailedEdgeSource:
@@ -164,7 +164,7 @@ class TrailedEdgeSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
         Given a `TrailedTestDataset`, run the NaivePlugin measurement and
         check that the trailed sources have the edge flag set. [100,100] does
         not contain any edge pixels and should not have a flag set, [20,20]
-        crosses into the edge region on onle one side and should have the edge
+        crosses into the edge region on only one side and should have the edge
         flag set, and [-20,-30] extends off the chip and should have the edge
         flag set.
         """
@@ -202,6 +202,8 @@ class TrailedEdgeSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
             # failing.
             self.assertTrue(record.get("ext_trailedSources_Naive_flag_edge"))
             self.assertFalse(record.get("ext_trailedSources_Naive_flag"))
+            self.assertFalse(record.get("ext_trailedSources_Naive_flag_off_image"))
+            self.assertFalse(record.get("ext_trailedSources_Naive_flag_nan"))
 
             x1 = int(record['ext_trailedSources_Naive_x1'])
             y1 = int(record['ext_trailedSources_Naive_y1'])
@@ -222,6 +224,30 @@ class TrailedEdgeSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
             # Make sure measurement Naive_flag_edge and Naive_flag not set
             self.assertFalse(record.get("ext_trailedSources_Naive_flag_edge"))
             self.assertFalse(record.get("ext_trailedSources_Naive_flag"))
+            self.assertFalse(record.get("ext_trailedSources_Naive_flag_off_image"))
+            self.assertFalse(record.get("ext_trailedSources_Naive_flag_nan"))
+
+            x1 = int(record['ext_trailedSources_Naive_x1'])
+            y1 = int(record['ext_trailedSources_Naive_y1'])
+
+            self.assertFalse(exposure.mask[Point2I(x0, y0)] & exposure.mask.getPlaneBitMask('EDGE') != 0)
+            self.assertFalse(exposure.mask[Point2I(x1, y1)] & exposure.mask.getPlaneBitMask('EDGE') != 0)
+
+        # Test case trail fully contained
+        elif record["truth_x"] == 90:
+            begin_edge_pixel_set = (exposure.mask[Point2I(x0, y0)] & exposure.mask.getPlaneBitMask(
+                'EDGE') != 0)
+            end_edge_pixel_set = (exposure.mask[Point2I(x1, y1)] & exposure.mask.getPlaneBitMask(
+                'EDGE') != 0)
+
+            self.assertFalse(begin_edge_pixel_set)
+            self.assertFalse(end_edge_pixel_set)
+
+            # Make sure measurement Naive_flag_edge and Naive_flag not set
+            self.assertFalse(record.get("ext_trailedSources_Naive_flag_edge"))
+            self.assertFalse(record.get("ext_trailedSources_Naive_flag"))
+            self.assertFalse(record.get("ext_trailedSources_Naive_flag_off_image"))
+            self.assertFalse(record.get("ext_trailedSources_Naive_flag_nan"))
 
             x1 = int(record['ext_trailedSources_Naive_x1'])
             y1 = int(record['ext_trailedSources_Naive_y1'])
@@ -231,8 +257,88 @@ class TrailedEdgeSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
 
         # Test case with trailed source extending off chip.
         else:
+            self.assertEquals(record['truth_x'], -20)
             self.assertTrue(record.get("ext_trailedSources_Naive_flag_edge"))
             self.assertFalse(record.get("ext_trailedSources_Naive_flag"))
+            self.assertTrue(record.get("ext_trailedSources_Naive_flag_off_image"))
+            self.assertFalse(record.get("ext_trailedSources_Naive_flag_nan"))
+
+    def testNanFlag(self):
+        """Test if nan flags are correctly set in NaivePlugin.py
+
+        Given a `TrailedTestDataset`, run the NaivePlugin measurement which
+        has trailed sources where one of the end point values results in a
+        nan.
+        """
+        # Set up and run Naive measurement.
+        task = TrailedTaskSetup.makeTrailedSourceMeasurementTask(self,
+                                                                 plugin="ext_trailedSources_Naive",
+                                                                 dependencies=("base_SdssCentroid",
+                                                                               "base_SdssShape")
+                                                                 )
+
+        exposure, catalog = self.dataset.realize(5.0, task.schema, randomSeed=0)
+
+        original_check_trail_function = task.plugins['ext_trailedSources_Naive'].check_trail
+        # Used to simulate a trailed source where one of the coordinates is a
+        # nan.
+
+        def check_trail_mock(*args, **kwargs):
+            measRecord = args[0]
+            exposure = args[1]
+            x0 = args[2]
+            y0 = args[3]
+            x1 = args[4]
+            y1 = np.nan  # overriding to test NAN flagging
+            length = args[6]
+            measRecord['ext_trailedSources_Naive_y1'] = np.nan
+            return original_check_trail_function(measRecord, exposure, x0, y0, x1, y1, length)
+
+        # This patcher mocks check_trail so that one of the trailed sources
+        # includes it is checking contains a nan at one of its endpoints.
+        patcher = patch(
+            'lsst.meas.extensions.trailedSources.NaivePlugin.SingleFrameNaiveTrailPlugin.check_trail',
+            side_effect=check_trail_mock)
+        patcher.start()
+        task.run(catalog, exposure)
+        record = catalog[0]
+
+        # Test Case with no edge pixels, but one is set to nan.
+        if record['truth_x'] == 100:
+            self.assertFalse(record.get("ext_trailedSources_Naive_flag_edge"))
+            self.assertFalse(record.get("ext_trailedSources_Naive_flag"))
+            self.assertFalse(record.get("ext_trailedSources_Naive_flag_off_image"))
+            self.assertTrue(record.get("ext_trailedSources_Naive_flag_nan"))
+
+        # Test case with one end of trail containing edge pixels, but nan is
+        # set so edge does not end up set.
+        elif record['truth_x'] == 20:
+
+            self.assertFalse(record.get("ext_trailedSources_Naive_flag_edge"))
+            self.assertFalse(record.get("ext_trailedSources_Naive_flag"))
+            self.assertFalse(record.get("ext_trailedSources_Naive_flag_off_image"))
+            self.assertTrue(record.get("ext_trailedSources_Naive_flag_nan"))
+
+        # Test case trail fully contained, but contains one nan. Only nan flag
+        # is set.
+        elif record["truth_x"] == 90:
+
+            self.assertFalse(record.get("ext_trailedSources_Naive_flag_edge"))
+            self.assertFalse(record.get("ext_trailedSources_Naive_flag"))
+            self.assertFalse(record.get("ext_trailedSources_Naive_flag_off_image"))
+            self.assertTrue(record.get("ext_trailedSources_Naive_flag_nan"))
+
+        # Test case with trailed source extending off chip. One coordinate
+        # is off image the other is nan, so edge, off_image, and nan should
+        # be set.
+        else:
+            self.assertEquals(record['truth_x'], -20)
+            self.assertTrue(record.get("ext_trailedSources_Naive_flag_edge"))
+            self.assertFalse(record.get("ext_trailedSources_Naive_flag"))
+            self.assertTrue(record.get("ext_trailedSources_Naive_flag_off_image"))
+            self.assertTrue(record.get("ext_trailedSources_Naive_flag_nan"))
+
+        patcher.stop()
 
 
 @classParameters(length=[10], theta=[5], xc=[-20], yc=[-30])
