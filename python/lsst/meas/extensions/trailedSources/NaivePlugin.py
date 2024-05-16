@@ -31,6 +31,7 @@ from lsst.geom import Point2D, Point2I
 from lsst.meas.base.pluginRegistry import register
 from lsst.meas.base import SingleFramePlugin, SingleFramePluginConfig
 from lsst.meas.base import FlagHandler, FlagDefinitionList, SafeCentroidExtractor
+import lsst.pex.config
 
 from ._trailedSources import VeresModel
 from .utils import getMeasurementCutout
@@ -41,7 +42,11 @@ __all__ = ("SingleFrameNaiveTrailConfig", "SingleFrameNaiveTrailPlugin")
 class SingleFrameNaiveTrailConfig(SingleFramePluginConfig):
     """Config class for SingleFrameNaiveTrailPlugin.
     """
-    pass
+    maxFlux = lsst.pex.config.Field(
+        dtype=float,
+        default=1e10,
+        doc="Maximum calculated model flux before falling back on aperture flux."
+    )
 
 
 @register("ext_trailedSources_Naive")
@@ -213,7 +218,7 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         flux, gradFlux = model.computeFluxWithGradient(params)
 
         # Fall back to aperture flux
-        if not np.isfinite(flux):
+        if (not np.isfinite(flux)) | (np.abs(flux) > self.config.maxFlux):
             if np.isfinite(measRecord.getApInstFlux()):
                 flux = measRecord.getApInstFlux()
             else:
