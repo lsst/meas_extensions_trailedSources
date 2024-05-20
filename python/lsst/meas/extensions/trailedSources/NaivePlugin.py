@@ -134,6 +134,7 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         self.NAN = flagDefs.add("flag_nan", "One or more trail coordinates are missing")
         self.SUSPECT_LONG_TRAIL = flagDefs.add("flag_suspect_long_trail",
                                                "Trail length is greater than three times the psf radius")
+        self.SHAPE = flagDefs.add("flag_shape", "Shape flag is set, trail length not calculated")
         self.flagHandler = FlagHandler.addFields(schema, name, flagDefs)
 
         self.centroidExtractor = SafeCentroidExtractor(schema, name)
@@ -166,8 +167,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         ra, dec = self.computeRaDec(exposure, xc, yc)
 
         if measRecord.getShapeFlag():
-            self.log.warning("Shape flag is set for measRecord: %s. Trail measurement "
-                             "will not be made.", measRecord.getId())
+            self.log.debug("Shape flag is set for measRecord: %s. Trail measurement "
+                           "will not be made. All trail values will be set to nan.", measRecord.getId())
             self.flagHandler.setValue(measRecord, self.FAILURE.number, True)
             self.flagHandler.setValue(measRecord, self.SHAPE.number, True)
             return
