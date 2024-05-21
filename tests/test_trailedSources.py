@@ -28,7 +28,7 @@ import lsst.meas.extensions.trailedSources
 from scipy.optimize import check_grad
 import lsst.afw.table as afwTable
 from lsst.meas.base.tests import AlgorithmTestCase
-from lsst.meas.extensions.trailedSources import SingleFrameNaiveTrailPlugin as sfntp
+from lsst.meas.extensions.trailedSources import SingleFrameNaiveTrailPlugin
 from lsst.meas.extensions.trailedSources import VeresModel
 from lsst.meas.extensions.trailedSources.utils import getMeasurementCutout
 from lsst.utils.tests import classParameters
@@ -132,11 +132,11 @@ class TrailedSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
 
     @staticmethod
     def f_length(x):
-        return sfntp.findLength(*x)[0]
+        return SingleFrameNaiveTrailPlugin.findLength(*x)[0]
 
     @staticmethod
     def g_length(x):
-        return sfntp.findLength(*x)[1]
+        return SingleFrameNaiveTrailPlugin.findLength(*x)[1]
 
     @staticmethod
     def f_flux(x, model):
