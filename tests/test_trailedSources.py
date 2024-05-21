@@ -118,12 +118,6 @@ class TrailedSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
         self.trail = TrailedSource(100000.0, self.length, self.theta, self.xc, self.yc)
         self.dataset.addTrailedSource(self.trail)
 
-    def tearDown(self):
-        del self.center
-        del self.bbox
-        del self.trail
-        del self.dataset
-
     @staticmethod
     def transformMoments(Ixx, Iyy, Ixy):
         """Transform second-moments to semi-major and minor axis.
