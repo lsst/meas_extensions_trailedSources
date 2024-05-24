@@ -106,7 +106,7 @@ class SingleFrameVeresTrailPlugin(SingleFramePlugin):
         self.keyX1 = schema.addField(name + "_x1", type="D", doc="Trail tail X coordinate.", units="pixel")
         self.keyY1 = schema.addField(name + "_y1", type="D", doc="Trail tail Y coordinate.", units="pixel")
         self.keyLength = schema.addField(name + "_length", type="D", doc="Length of trail.", units="pixel")
-        self.keyTheta = schema.addField(name + "_angle", type="D", doc="Angle of trail from +x-axis.")
+        self.keyTheta = schema.addField(name + "_angle", type="D", doc="Angle of trail CCW from +x-axis.")
         self.keyFlux = schema.addField(name + "_flux", type="D", doc="Trailed source flux.", units="count")
         self.keyRChiSq = schema.addField(name + "_rChiSq", type="D", doc="Reduced chi-squared of fit")
 

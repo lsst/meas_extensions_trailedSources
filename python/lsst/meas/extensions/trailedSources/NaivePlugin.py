@@ -106,7 +106,7 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         self.keyY1 = schema.addField(name + "_y1", type="D", doc="Trail tail Y coordinate.", units="pixel")
         self.keyFlux = schema.addField(name + "_flux", type="D", doc="Trailed source flux.", units="count")
         self.keyLength = schema.addField(name + "_length", type="D", doc="Trail length.", units="pixel")
-        self.keyAngle = schema.addField(name + "_angle", type="D", doc="Angle measured from +x-axis.")
+        self.keyAngle = schema.addField(name + "_angle", type="D", doc="Angle measured CCW from +x-axis.", units="rad")
 
         # Measurement Error Keys
         self.keyX0Err = schema.addField(name + "_x0Err", type="D",
@@ -121,7 +121,7 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
                                           doc="Trail flux error.", units="count")
         self.keyLengthErr = schema.addField(name + "_lengthErr", type="D",
                                             doc="Trail length error.", units="pixel")
-        self.keyAngleErr = schema.addField(name + "_angleErr", type="D", doc="Trail angle error.")
+        self.keyAngleErr = schema.addField(name + "_angleErr", type="D", doc="Trail angle error.", units="rad")
 
         flagDefs = FlagDefinitionList()
         self.FAILURE = flagDefs.addFailureFlag("No trailed-source measured")
