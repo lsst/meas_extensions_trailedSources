@@ -152,12 +152,6 @@ class TrailedEdgeSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
         self.trail = TrailedEdgeSource(100000.0, self.length, self.theta, self.xc, self.yc)
         self.dataset.addTrailedSource(self.trail)
 
-    def tearDown(self):
-        del self.center
-        del self.bbox
-        del self.trail
-        del self.dataset
-
     def testEdgeFlag(self):
         """Test if edge flags are correctly set in NaivePlugin.py
 
