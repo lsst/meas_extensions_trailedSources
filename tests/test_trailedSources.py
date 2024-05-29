@@ -104,6 +104,55 @@ class TrailedTestDataset(lsst.meas.base.tests.TestDataset):
         return record, self.exposure.getImage()
 
 
+class TrailedSourcesFailuresTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
+    """Tests of various failure modes of the trailed source plugin.
+    """
+    def setUp(self):
+        self.center = lsst.geom.Point2D(50.1, 49.8)
+        self.bbox = lsst.geom.Box2I(lsst.geom.Point2I(-20, -30),
+                                    lsst.geom.Extent2I(140, 160))
+        self.dataset = TrailedTestDataset(self.bbox)
+        self.trail = TrailedSource(100000.0, 20, .5, 40, 40)
+        self.dataset.addTrailedSource(self.trail)
+        # So that the tests are consistent about output field names.
+        self.name = "trailedSource"
+
+    def _setupPlugin(self, plugins=None):
+        """Return a prepared trailed source plugin, catalog, and exposure for
+        use with mocked failures.
+        """
+        schema = TrailedTestDataset.makeMinimalSchema()
+        dependencies = ["base_SdssCentroid"]
+        dependencies += plugins if plugins is not None else []
+        config = self.makeSingleFrameMeasurementConfig(plugin="base_SdssShape",
+                                                       dependencies=dependencies)
+        config.slots.shape = "base_SdssShape"
+        config.slots.centroid = "base_SdssCentroid"
+        trailedPlugin = SingleFrameNaiveTrailPlugin(SingleFrameNaiveTrailPlugin.ConfigClass(),
+                                                    self.name,
+                                                    schema,
+                                                    None)
+        task = self.makeSingleFrameMeasurementTask(
+            plugin="base_SdssShape",
+            dependencies=dependencies,
+            config=config,
+            schema=schema
+        )
+        exposure, catalog = self.dataset.realize(10.0, task.schema, randomSeed=0)
+        task.run(catalog, exposure)
+        return trailedPlugin, catalog, exposure
+
+    def testShapeFlag(self):
+        """Test that the correct trailed source flags get set if shape_flag
+        is set.
+        """
+        trailedPlugin, catalog, exposure = self._setupPlugin()
+        catalog["base_SdssShape_flag"] = True
+        trailedPlugin.measure(catalog[0], exposure)
+        self.assertTrue(catalog[0][f"{self.name}_flag"])
+        self.assertTrue(catalog[0][f"{self.name}_flag_shape"])
+
+
 # Following from meas_base/test_NaiveCentroid.py
 # Taken from NaiveCentroidTestCase
 @classParameters(length=Ls, theta=thetas, xc=xcs, yc=ycs)
