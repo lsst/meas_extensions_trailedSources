@@ -30,7 +30,7 @@ from math import sqrt
 from lsst.geom import Point2D, Point2I
 from lsst.meas.base.pluginRegistry import register
 from lsst.meas.base import SingleFramePlugin, SingleFramePluginConfig
-from lsst.meas.base import FlagHandler, FlagDefinitionList, SafeCentroidExtractor
+from lsst.meas.base import FlagHandler, FlagDefinitionList
 import lsst.pex.config
 
 from ._trailedSources import VeresModel
@@ -128,7 +128,6 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         self.NO_FLUX = flagDefs.add("flag_noFlux", "No suitable prior flux measurement")
         self.NO_CONVERGE = flagDefs.add("flag_noConverge", "The root finder did not converge")
         self.NO_SIGMA = flagDefs.add("flag_noSigma", "No PSF width (sigma)")
-        self.SAFE_CENTROID = flagDefs.add("flag_safeCentroid", "Fell back to safe centroid extractor")
         self.EDGE = flagDefs.add("flag_edge", "Trail contains edge pixels")
         self.OFFIMAGE = flagDefs.add("flag_off_image", "Trail extends off image")
         self.NAN = flagDefs.add("flag_nan", "One or more trail coordinates are missing")
@@ -137,7 +136,6 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         self.SHAPE = flagDefs.add("flag_shape", "Shape flag is set, trail length not calculated")
         self.flagHandler = FlagHandler.addFields(schema, name, flagDefs)
 
-        self.centroidExtractor = SafeCentroidExtractor(schema, name)
         self.log = logging.getLogger(self.logName)
 
     def measure(self, measRecord, exposure):
