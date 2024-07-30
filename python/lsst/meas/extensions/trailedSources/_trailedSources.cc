@@ -24,17 +24,17 @@
 
 #include "pybind11/pybind11.h"
 
-#include "lsst/utils/python.h"
+#include "lsst/cpputils/python.h"
 
 namespace lsst {
 namespace meas {
 namespace extensions {
 namespace trailedSources {
 
-void wrapVeresModel(lsst::utils::python::WrapperCollection & wrappers);
+void wrapVeresModel(lsst::cpputils::python::WrapperCollection & wrappers);
 
 PYBIND11_MODULE(_trailedSources, mod) {
-    lsst::utils::python::WrapperCollection wrappers(mod, "lsst.meas.extensions.trailedSources");
+    lsst::cpputils::python::WrapperCollection wrappers(mod, "lsst.meas.extensions.trailedSources");
     wrapVeresModel(wrappers);
     wrappers.finish();
 }

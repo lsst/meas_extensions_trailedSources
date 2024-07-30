@@ -28,7 +28,7 @@
 #include "lsst/geom.h"
 #include "lsst/afw/image.h"
 #include "lsst/meas/extensions/trailedSources/VeresModel.h"
-#include "lsst/utils/python.h"
+#include "lsst/cpputils/python.h"
 
 namespace py = pybind11;
 using namespace pybind11::literals;
@@ -38,7 +38,7 @@ namespace meas {
 namespace extensions {
 namespace trailedSources {
 
-void wrapVeresModel(utils::python::WrapperCollection& wrappers) {
+void wrapVeresModel(cpputils::python::WrapperCollection& wrappers) {
 
     wrappers.addSignatureDependency("lsst.geom");
     wrappers.addSignatureDependency("lsst.afw.image");
