@@ -1,3 +1,4 @@
+_build*
 python/lsst/meas/extensions/trailedSources/version.py
 *.pyc
 *.o
