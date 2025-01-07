@@ -1,3 +1,5 @@
+*.dylib
+_build*
 python/lsst/meas/extensions/trailedSources/version.py
 *.pyc
 *.o
@@ -10,3 +12,4 @@ config.log
 *.ipynb_checkpoints/
 tests/.tests
 .vscode/
+python/*.dist-info/
