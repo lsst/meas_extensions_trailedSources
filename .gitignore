@@ -10,3 +10,4 @@ config.log
 *.ipynb_checkpoints/
 tests/.tests
 .vscode/
+python/*.dist-info/
