@@ -251,7 +251,7 @@ class TrailedEdgeSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
 
         # Test case with trailed source extending off chip.
         else:
-            self.assertEquals(record['truth_x'], -20)
+            self.assertEqual(record['truth_x'], -20)
             self.assertTrue(record.get("ext_trailedSources_Naive_flag_edge"))
             self.assertFalse(record.get("ext_trailedSources_Naive_flag"))
             self.assertTrue(record.get("ext_trailedSources_Naive_flag_off_image"))
@@ -326,7 +326,7 @@ class TrailedEdgeSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
         # is off image the other is nan, so edge, off_image, and nan should
         # be set.
         else:
-            self.assertEquals(record['truth_x'], -20)
+            self.assertEqual(record['truth_x'], -20)
             self.assertTrue(record.get("ext_trailedSources_Naive_flag_edge"))
             self.assertFalse(record.get("ext_trailedSources_Naive_flag"))
             self.assertTrue(record.get("ext_trailedSources_Naive_flag_off_image"))
