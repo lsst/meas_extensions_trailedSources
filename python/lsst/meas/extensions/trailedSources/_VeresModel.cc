@@ -44,7 +44,7 @@ void wrapVeresModel(cpputils::python::WrapperCollection& wrappers) {
     wrappers.addSignatureDependency("lsst.afw.image");
 
     wrappers.wrapType(
-        py::class_<VeresModel, std::shared_ptr<VeresModel>>(wrappers.module, "VeresModel"),
+        py::classh<VeresModel>(wrappers.module, "VeresModel"),
         [](auto & mod, auto & cls) {
             cls.def(py::init<afw::image::Exposure<float> const&>(), "data"_a);
             cls.def("__call__", &VeresModel::operator(), py::is_operator(), "params"_a);
