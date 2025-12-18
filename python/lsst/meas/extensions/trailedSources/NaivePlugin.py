@@ -134,6 +134,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         self.SUSPECT_LONG_TRAIL = flagDefs.add("flag_suspect_long_trail",
                                                "Trail length is greater than three times the psf radius")
         self.SHAPE = flagDefs.add("flag_shape", "Shape flag is set, trail length not calculated")
+        self.SAFE_CENTROID = flagDefs.add("flag_centroid",
+                                          "Centroid flag is set, trail length not calculated")
         self.flagHandler = FlagHandler.addFields(schema, name, flagDefs)
 
         self.log = logging.getLogger(self.logName)
