@@ -159,8 +159,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
             self.flagHandler.setValue(measRecord, self.SHAPE.number, True)
             return
 
-        xc = measRecord["slot_Shape_x"]
-        yc = measRecord["slot_Shape_y"]
+        xc = measRecord["base_SdssShape_x"]
+        yc = measRecord["base_SdssShape_y"]
         if not np.isfinite(xc) or not np.isfinite(yc):
             self.flagHandler.setValue(measRecord, self.SAFE_CENTROID.number, True)
             self.flagHandler.setValue(measRecord, self.FAILURE.number, True)
@@ -168,7 +168,10 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         ra, dec = self.computeRaDec(exposure, xc, yc)
 
         # Transform the second-moments to semi-major and minor axes
-        Ixx, Iyy, Ixy = measRecord.getShape().getParameterVector()
+        Ixx = measRecord["base_SdssShape_psf_xx"]
+        Iyy = measRecord["base_SdssShape_psf_yy"]
+        Ixy = measRecord["base_SdssShape_psf_xy"]
+        # Ixx, Iyy, Ixy = measRecord.getShape().getParameterVector()
         xmy = Ixx - Iyy
         xpy = Ixx + Iyy
         xmy2 = xmy*xmy
@@ -216,7 +219,10 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
                 return
 
         # Propogate errors from second moments and centroid
-        IxxErr2, IyyErr2, IxyErr2 = np.diag(measRecord.getShapeErr())
+        IxxErr2 = measRecord["base_SdssShape_xxErr"]
+        IyyErr2 = measRecord["base_SdssShape_yyErr"]
+        IxyErr2 = measRecord["base_SdssShape_xyErr"]
+        # IxxErr2, IyyErr2, IxyErr2 = np.diag(measRecord.getShapeErr())
 
         # SdssShape does not produce centroid errors. The
         # Slot centroid errors will suffice for now.
