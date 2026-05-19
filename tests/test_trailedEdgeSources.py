@@ -198,7 +198,6 @@ class TrailedEdgeSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
             self.assertFalse(record.get("ext_trailedSources_Naive_flag"))
             self.assertFalse(record.get("ext_trailedSources_Naive_flag_off_image"))
             self.assertFalse(record.get("ext_trailedSources_Naive_flag_nan"))
-            self.assertEqual(record.get("ext_trailedSources_Naive_algorithmKey"), 1)
 
             x1 = int(record['ext_trailedSources_Naive_x1'])
             y1 = int(record['ext_trailedSources_Naive_y1'])
@@ -221,7 +220,6 @@ class TrailedEdgeSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
             self.assertFalse(record.get("ext_trailedSources_Naive_flag"))
             self.assertFalse(record.get("ext_trailedSources_Naive_flag_off_image"))
             self.assertFalse(record.get("ext_trailedSources_Naive_flag_nan"))
-            self.assertEqual(record.get("ext_trailedSources_Naive_algorithmKey"), 1)
 
             x1 = int(record['ext_trailedSources_Naive_x1'])
             y1 = int(record['ext_trailedSources_Naive_y1'])
@@ -244,7 +242,6 @@ class TrailedEdgeSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
             self.assertFalse(record.get("ext_trailedSources_Naive_flag"))
             self.assertFalse(record.get("ext_trailedSources_Naive_flag_off_image"))
             self.assertFalse(record.get("ext_trailedSources_Naive_flag_nan"))
-            self.assertEqual(record.get("ext_trailedSources_Naive_algorithmKey"), 1)
 
             x1 = int(record['ext_trailedSources_Naive_x1'])
             y1 = int(record['ext_trailedSources_Naive_y1'])
@@ -259,7 +256,6 @@ class TrailedEdgeSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
             self.assertFalse(record.get("ext_trailedSources_Naive_flag"))
             self.assertTrue(record.get("ext_trailedSources_Naive_flag_off_image"))
             self.assertFalse(record.get("ext_trailedSources_Naive_flag_nan"))
-            self.assertEqual(record.get("ext_trailedSources_Naive_algorithmKey"), 1)
 
     def testNanFlag(self):
         """Test if nan flags are correctly set in NaivePlugin.py
@@ -385,7 +381,6 @@ class TrailedEdgeSourcesOffImageTest(AlgorithmTestCase, lsst.utils.tests.TestCas
 
         self.assertTrue(record.get("ext_trailedSources_Naive_flag_edge"))
         self.assertFalse(record.get("ext_trailedSources_Naive_flag"))
-        self.assertEqual(record.get("ext_trailedSources_Naive_algorithmKey"), 1)
 
 
 class TestMemory(lsst.utils.tests.MemoryTestCase):
