@@ -32,6 +32,11 @@ from lsst.meas.extensions.trailedSources import SingleFrameNaiveTrailPlugin
 from lsst.meas.extensions.trailedSources import VeresModel
 from lsst.meas.extensions.trailedSources.utils import getMeasurementCutout
 from lsst.utils.tests import classParameters
+try:
+    import lsst.meas.extensions.shapeHSM  # noqa: F401
+    HAS_HSM = True
+except ImportError:
+    HAS_HSM = False
 
 
 # Trailed-source length, angle, and centroid.
@@ -104,6 +109,7 @@ class TrailedTestDataset(lsst.meas.base.tests.TestDataset):
         return record, self.exposure.getImage()
 
 
+@unittest.skipUnless(HAS_HSM, "lsst.meas.extensions.shapeHSM not available")
 class TrailedSourcesFailuresTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
     """Tests of various failure modes of the trailed source plugin.
     """
@@ -119,21 +125,24 @@ class TrailedSourcesFailuresTestCase(AlgorithmTestCase, lsst.utils.tests.TestCas
 
     def _setupPlugin(self, plugins=None):
         """Return a prepared trailed source plugin, catalog, and exposure for
-        use with mocked failures.
+        use with mocked failures. Runs both base_SdssShape and
+        ext_shapeHSM_HsmSourceMoments, with HSM as the shape slot so the
+        NaivePlugin's SDSS-to-HSM fallback path can be exercised.
         """
+        hsmPlugin = "ext_shapeHSM_HsmSourceMoments"
         schema = TrailedTestDataset.makeMinimalSchema()
-        dependencies = ["base_SdssCentroid"]
+        dependencies = ["base_SdssCentroid", "base_SdssShape"]
         dependencies += plugins if plugins is not None else []
-        config = self.makeSingleFrameMeasurementConfig(plugin="base_SdssShape",
+        config = self.makeSingleFrameMeasurementConfig(plugin=hsmPlugin,
                                                        dependencies=dependencies)
-        config.slots.shape = "base_SdssShape"
+        config.slots.shape = hsmPlugin
         config.slots.centroid = "base_SdssCentroid"
         trailedPlugin = SingleFrameNaiveTrailPlugin(SingleFrameNaiveTrailPlugin.ConfigClass(),
                                                     self.name,
                                                     schema,
                                                     None)
         task = self.makeSingleFrameMeasurementTask(
-            plugin="base_SdssShape",
+            plugin=hsmPlugin,
             dependencies=dependencies,
             config=config,
             schema=schema
@@ -143,14 +152,50 @@ class TrailedSourcesFailuresTestCase(AlgorithmTestCase, lsst.utils.tests.TestCas
         return trailedPlugin, catalog, exposure
 
     def testShapeFlag(self):
-        """Test that the correct trailed source flags get set if shape_flag
-        is set.
+        """Test that the correct trailed source flags get set if both shape
+        measurements fail.
         """
         trailedPlugin, catalog, exposure = self._setupPlugin()
         catalog["base_SdssShape_flag"] = True
+        catalog["ext_shapeHSM_HsmSourceMoments_flag"] = True
         trailedPlugin.measure(catalog[0], exposure)
         self.assertTrue(catalog[0][f"{self.name}_flag"])
         self.assertTrue(catalog[0][f"{self.name}_flag_shape"])
+        self.assertEqual(catalog[0][f"{self.name}_algorithmKey"], 0)
+
+    def testHsmShapeFallback(self):
+        """Test that NaivePlugin falls back to the shape slot (HSM) when SDSS
+        shape fails but HSM succeeds.
+        """
+        trailedPlugin, catalog, exposure = self._setupPlugin()
+
+        # Simulate SDSS shape failure; HSM shape slot remains valid.
+        catalog["base_SdssShape_flag"] = True
+        trailedPlugin.measure(catalog[0], exposure)
+
+        # Plugin should succeed using HSM moments.
+        self.assertFalse(catalog[0][f"{self.name}_flag"])
+        self.assertFalse(catalog[0][f"{self.name}_flag_shape"])
+
+        length = catalog[0].get(f"{self.name}_length")
+        self.assertTrue(np.isfinite(length))
+        self.assertGreater(length, 0)
+        self.assertEqual(catalog[0].get(f"{self.name}_algorithmKey"), 2)
+
+    def testBothShapesFail(self):
+        """Test that NaivePlugin sets failure flags when both SDSS shape and
+        the HSM shape slot fail.
+        """
+        trailedPlugin, catalog, exposure = self._setupPlugin()
+
+        # Simulate failure of both shape measurements.
+        catalog["base_SdssShape_flag"] = True
+        catalog["ext_shapeHSM_HsmSourceMoments_flag"] = True
+        trailedPlugin.measure(catalog[0], exposure)
+
+        self.assertTrue(catalog[0][f"{self.name}_flag"])
+        self.assertTrue(catalog[0][f"{self.name}_flag_shape"])
+        self.assertEqual(catalog[0][f"{self.name}_algorithmKey"], 0)
 
 
 # Following from meas_base/test_NaiveCentroid.py
@@ -287,6 +332,9 @@ class TrailedSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
 
         # Make sure measurement flag is False
         self.assertFalse(record.get("ext_trailedSources_Naive_flag"))
+
+        # Check algorithmKey is set
+        self.assertEqual(record.get("ext_trailedSources_Naive_algorithmKey"), 1)
 
     def testVeresPlugin(self):
         """Test the VeresPlugin measurements.
