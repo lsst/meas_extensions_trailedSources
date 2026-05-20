@@ -122,6 +122,9 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         self.keyLengthErr = schema.addField(name + "_lengthErr", type="D",
                                             doc="Trail length error.", units="pixel")
         self.keyAngleErr = schema.addField(name + "_angleErr", type="D", doc="Trail angle error.")
+        self.keyAlgorithm = schema.addField(name + "_algorithmKey", type="I",
+                                            doc="Algorithm key indicating which algorithm is "
+                                                "used to measure trailed source.")
 
         flagDefs = FlagDefinitionList()
         self.FAILURE = flagDefs.addFailureFlag("No trailed-source measured")
@@ -134,6 +137,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         self.SUSPECT_LONG_TRAIL = flagDefs.add("flag_suspect_long_trail",
                                                "Trail length is greater than three times the psf radius")
         self.SHAPE = flagDefs.add("flag_shape", "Shape flag is set, trail length not calculated")
+        self.SAFE_CENTROID = flagDefs.add("flag_centroid",
+                                          "Centroid flag is set, trail length not calculated")
         self.flagHandler = FlagHandler.addFields(schema, name, flagDefs)
 
         self.log = logging.getLogger(self.logName)
@@ -152,15 +157,33 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         --------
         lsst.meas.base.SingleFramePlugin.measure
         """
-        if measRecord.getShapeFlag():
-            self.log.debug("Shape flag is set for measRecord: %s. Trail measurement "
-                           "will not be made. All trail values will be set to nan.", measRecord.getId())
-            self.flagHandler.setValue(measRecord, self.FAILURE.number, True)
-            self.flagHandler.setValue(measRecord, self.SHAPE.number, True)
-            return
+        self.flagHandler.setValue(measRecord, self.FAILURE.number, False)
+        use_sdss_shape = True
+        if measRecord['base_SdssShape_flag']:
+            if measRecord.getShapeFlag():
+                self.log.debug("HSM shape flag is also set for measRecord: %s. Trail measurement "
+                               "will not be made. All trail values will be set to nan.", measRecord.getId())
+                self.flagHandler.setValue(measRecord, self.FAILURE.number, True)
+                self.flagHandler.setValue(measRecord, self.SHAPE.number, True)
+                return
+            else:
+                use_sdss_shape = False
+                measRecord.set(self.keyAlgorithm, 2)
+                self.log.debug(
+                    "SDSS Shape flag is set for measRecord: %s. Falling back"
+                    "to HSMshape. No error measurements will be made.", measRecord.getId())
+                xc = measRecord["slot_Shape_x"]
+                yc = measRecord["slot_Shape_y"]
+                Ixx, Iyy, Ixy = measRecord.getShape().getParameterVector()
 
-        xc = measRecord["slot_Shape_x"]
-        yc = measRecord["slot_Shape_y"]
+        else:
+            measRecord.set(self.keyAlgorithm, 1)
+            xc = measRecord["base_SdssShape_x"]
+            yc = measRecord["base_SdssShape_y"]
+            Ixx = measRecord["base_SdssShape_xx"]
+            Iyy = measRecord["base_SdssShape_yy"]
+            Ixy = measRecord["base_SdssShape_xy"]
+
         if not np.isfinite(xc) or not np.isfinite(yc):
             self.flagHandler.setValue(measRecord, self.SAFE_CENTROID.number, True)
             self.flagHandler.setValue(measRecord, self.FAILURE.number, True)
@@ -168,7 +191,6 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         ra, dec = self.computeRaDec(exposure, xc, yc)
 
         # Transform the second-moments to semi-major and minor axes
-        Ixx, Iyy, Ixy = measRecord.getShape().getParameterVector()
         xmy = Ixx - Iyy
         xpy = Ixx + Iyy
         xmy2 = xmy*xmy
@@ -215,43 +237,59 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
                 self.flagHandler.setValue(measRecord, self.FAILURE.number, True)
                 return
 
-        # Propogate errors from second moments and centroid
-        IxxErr2, IyyErr2, IxyErr2 = np.diag(measRecord.getShapeErr())
+        # Errors can only be calculated when using SDSS shape. Otherwise,
+        # the errors are set to nan.
+        if use_sdss_shape:
+            # Propogate errors from second moments and centroid.
+            # Retrieved error is the standard of deviation, not
+            # covariance and must be squared.
+            IxxErr2 = measRecord["base_SdssShape_xxErr"]**2
+            IyyErr2 = measRecord["base_SdssShape_yyErr"]**2
+            IxyErr2 = measRecord["base_SdssShape_xyErr"]**2
 
-        # SdssShape does not produce centroid errors. The
-        # Slot centroid errors will suffice for now.
-        xcErr2, ycErr2 = np.diag(measRecord.getCentroidErr())
+            # Centroid Errors
+            xcErr2 = measRecord["base_SdssCentroid_xErr"]**2
+            ycErr2 = measRecord["base_SdssCentroid_yErr"]**2
 
-        # Error in length
-        desc = sqrt(xmy2 + 4.0*xy2)  # Descriminant^1/2 of EV equation
-        da2dIxx = 0.5*(1.0 + (xmy/desc))
-        da2dIyy = 0.5*(1.0 - (xmy/desc))
-        da2dIxy = 2.0*Ixy / desc
-        a2Err2 = IxxErr2*da2dIxx*da2dIxx + IyyErr2*da2dIyy*da2dIyy + IxyErr2*da2dIxy*da2dIxy
-        b2Err2 = IxxErr2*da2dIyy*da2dIyy + IyyErr2*da2dIxx*da2dIxx + IxyErr2*da2dIxy*da2dIxy
-        dLda2, dLdb2 = gradLength
-        lengthErr = np.sqrt(dLda2*dLda2*a2Err2 + dLdb2*dLdb2*b2Err2)
+            # Error in length
+            desc = sqrt(xmy2 + 4.0*xy2)  # Descriminant^1/2 of EV equation
+            da2dIxx = 0.5*(1.0 + (xmy/desc))
+            da2dIyy = 0.5*(1.0 - (xmy/desc))
+            da2dIxy = 2.0*Ixy / desc
+            a2Err2 = IxxErr2*da2dIxx*da2dIxx + IyyErr2*da2dIyy*da2dIyy + IxyErr2*da2dIxy*da2dIxy
+            b2Err2 = IxxErr2*da2dIyy*da2dIyy + IyyErr2*da2dIxx*da2dIxx + IxyErr2*da2dIxy*da2dIxy
+            dLda2, dLdb2 = gradLength
+            lengthErr = np.sqrt(dLda2*dLda2*a2Err2 + dLdb2*dLdb2*b2Err2)
 
-        # Error in theta
-        dThetadIxx = -Ixy / (xmy2 + 4.0*xy2)  # dThetadIxx = -dThetadIyy
-        dThetadIxy = xmy / (xmy2 + 4.0*xy2)
-        thetaErr = sqrt(dThetadIxx*dThetadIxx*(IxxErr2 + IyyErr2) + dThetadIxy*dThetadIxy*IxyErr2)
+            # Error in theta
+            dThetadIxx = -Ixy / (xmy2 + 4.0*xy2)  # dThetadIxx = -dThetadIyy
+            dThetadIxy = xmy / (xmy2 + 4.0*xy2)
+            thetaErr = sqrt(dThetadIxx*dThetadIxx*(IxxErr2 + IyyErr2) + dThetadIxy*dThetadIxy*IxyErr2)
 
-        # Error in flux
-        dFdxc, dFdyc, _, dFdL, dFdTheta = gradFlux
-        fluxErr = sqrt(dFdL*dFdL*lengthErr*lengthErr + dFdTheta*dFdTheta*thetaErr*thetaErr
-                       + dFdxc*dFdxc*xcErr2 + dFdyc*dFdyc*ycErr2)
+            # Error in flux
+            dFdxc, dFdyc, _, dFdL, dFdTheta = gradFlux
+            fluxErr = sqrt(dFdL*dFdL*lengthErr*lengthErr + dFdTheta*dFdTheta*thetaErr*thetaErr
+                           + dFdxc*dFdxc*xcErr2 + dFdyc*dFdyc*ycErr2)
 
-        # Errors in end-points
-        dxdradius = np.cos(theta)
-        dydradius = np.sin(theta)
-        radiusErr2 = lengthErr*lengthErr/4.0
-        xErr2 = sqrt(xcErr2 + radiusErr2*dxdradius*dxdradius + thetaErr*thetaErr*dxdtheta*dxdtheta)
-        yErr2 = sqrt(ycErr2 + radiusErr2*dydradius*dydradius + thetaErr*thetaErr*dydtheta*dydtheta)
-        x0Err = sqrt(xErr2)  # Same for x1
-        y0Err = sqrt(yErr2)  # Same for y1
+            # Errors in end-points
+            dxdradius = np.cos(theta)
+            dydradius = np.sin(theta)
+            radiusErr2 = lengthErr*lengthErr/4.0
+            xErr2 = sqrt(xcErr2 + radiusErr2*dxdradius*dxdradius + thetaErr*thetaErr*dxdtheta*dxdtheta)
+            yErr2 = sqrt(ycErr2 + radiusErr2*dydradius*dydradius + thetaErr*thetaErr*dydtheta*dydtheta)
+            x0Err = sqrt(xErr2)  # Same for x1
+            y0Err = sqrt(yErr2)  # Same for y1
 
-        # Set flags
+            # Set error values
+            measRecord.set(self.keyX0Err, x0Err)
+            measRecord.set(self.keyY0Err, y0Err)
+            measRecord.set(self.keyX1Err, x0Err)
+            measRecord.set(self.keyY1Err, y0Err)
+            measRecord.set(self.keyFluxErr, fluxErr)
+            measRecord.set(self.keyLengthErr, lengthErr)
+            measRecord.set(self.keyAngleErr, thetaErr)
+
+        # Set values
         measRecord.set(self.keyRa, ra)
         measRecord.set(self.keyDec, dec)
         measRecord.set(self.keyX0, x0)
@@ -261,13 +299,6 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         measRecord.set(self.keyFlux, flux)
         measRecord.set(self.keyLength, length)
         measRecord.set(self.keyAngle, theta)
-        measRecord.set(self.keyX0Err, x0Err)
-        measRecord.set(self.keyY0Err, y0Err)
-        measRecord.set(self.keyX1Err, x0Err)
-        measRecord.set(self.keyY1Err, y0Err)
-        measRecord.set(self.keyFluxErr, fluxErr)
-        measRecord.set(self.keyLengthErr, lengthErr)
-        measRecord.set(self.keyAngleErr, thetaErr)
 
     def check_trail(self, measRecord, exposure, x0, y0, x1, y1, length):
         """ Set flags for edge pixels, off chip, and nan trail coordinates and
