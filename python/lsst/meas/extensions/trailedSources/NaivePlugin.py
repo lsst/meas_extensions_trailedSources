@@ -27,7 +27,7 @@ import scipy.optimize as sciOpt
 from scipy.special import erf
 from math import sqrt
 
-from lsst.geom import Point2D, Point2I
+from lsst.geom import Point2D, Point2I, arcseconds
 from lsst.meas.base.pluginRegistry import register
 from lsst.meas.base import SingleFramePlugin, SingleFramePluginConfig
 from lsst.meas.base import FlagHandler, FlagDefinitionList
@@ -100,6 +100,10 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         # Measurement Keys
         self.keyRa = schema.addField(name + "_ra", type="D", doc="Trail centroid right ascension.")
         self.keyDec = schema.addField(name + "_dec", type="D", doc="Trail centroid declination.")
+        self.keyRaErr = schema.addField(name + "_raErr", type="D",
+                                        doc="Trail centroid right ascension error.", units="arcsec")
+        self.keyDecErr = schema.addField(name + "_decErr", type="D",
+                                         doc="Trail centroid declination error.", units="arcsec")
         self.keyX0 = schema.addField(name + "_x0", type="D", doc="Trail head X coordinate.", units="pixel")
         self.keyY0 = schema.addField(name + "_y0", type="D", doc="Trail head Y coordinate.", units="pixel")
         self.keyX1 = schema.addField(name + "_x1", type="D", doc="Trail tail X coordinate.", units="pixel")
@@ -251,6 +255,12 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
             xcErr2 = measRecord["base_SdssCentroid_xErr"]**2
             ycErr2 = measRecord["base_SdssCentroid_yErr"]**2
 
+            # Error in RA and Dec
+            wcs = exposure.getWcs()
+            jacobian = wcs.linearizePixelToSky(Point2D(xc, yc), arcseconds).getLinear().getMatrix()
+            raErr = sqrt(jacobian[0, 0]**2 * xcErr2 + jacobian[0, 1]**2 * ycErr2)
+            decErr = sqrt(jacobian[1, 0]**2 * xcErr2 + jacobian[1, 1]**2 * ycErr2)
+
             # Error in length
             desc = sqrt(xmy2 + 4.0*xy2)  # Descriminant^1/2 of EV equation
             da2dIxx = 0.5*(1.0 + (xmy/desc))
@@ -281,6 +291,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
             y0Err = sqrt(yErr2)  # Same for y1
 
             # Set error values
+            measRecord.set(self.keyRaErr, raErr)
+            measRecord.set(self.keyDecErr, decErr)
             measRecord.set(self.keyX0Err, x0Err)
             measRecord.set(self.keyY0Err, y0Err)
             measRecord.set(self.keyX1Err, x0Err)
