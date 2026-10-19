@@ -111,6 +111,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         self.keyFlux = schema.addField(name + "_flux", type="D", doc="Trailed source flux.", units="count")
         self.keyLength = schema.addField(name + "_length", type="D", doc="Trail length.", units="pixel")
         self.keyAngle = schema.addField(name + "_angle", type="D", doc="Angle measured from +x-axis.")
+        self.keynData = schema.addField(name + "_nData", type="I", doc="Number of data points used.")
+        self.keyChi2 = schema.addField(name + "_chi2", type="D", doc="Chi-squared of the fit.", units="pixel")
 
         # Measurement Error Keys
         self.keyX0Err = schema.addField(name + "_x0Err", type="D",
@@ -232,6 +234,13 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         model = VeresModel(cutout)
         flux, gradFlux = model.computeFluxWithGradient(params)
 
+        # Give fit flux that we have just derived data - model / err
+        # Compute model image
+        # chi2 is the sum of squared differences divided by the error squared
+        # The cutout size is the number of the datapoints
+        params_fit = np.array([xc, yc, flux, length, theta])
+        chi2 = np.sum((cutout - model.computeModelImage(params_fit))**2 / model.computeErrorImage(params_fit)**2)
+
         # Fall back to aperture flux
         if (not np.isfinite(flux)) | (np.abs(flux) > self.config.maxFlux):
             if np.isfinite(measRecord.getApInstFlux()):
@@ -311,6 +320,9 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         measRecord.set(self.keyFlux, flux)
         measRecord.set(self.keyLength, length)
         measRecord.set(self.keyAngle, theta)
+        measRecord.set(self.keyChi2, chi2)
+        measRecord.set(self.keynData, len(cutout))
+        # The cutout size is the number of the datapoints
 
     def check_trail(self, measRecord, exposure, x0, y0, x1, y1, length):
         """ Set flags for edge pixels, off chip, and nan trail coordinates and
