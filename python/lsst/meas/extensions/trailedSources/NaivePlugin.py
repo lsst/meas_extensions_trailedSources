@@ -236,11 +236,11 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
 
         # Give fit flux that we have just derived data - model / err
         # Compute model image
-        # chi2 is the sum of squared differences divided by the error squared
+        # The model returns
         # The cutout size is the number of the datapoints
         params_fit = np.array([xc, yc, flux, length, theta])
-        chi2 = np.sum((cutout - model.computeModelImage(params_fit))**2 /
-                      model.computeErrorImage(params_fit)**2)
+        chi2 = model(params_fit)/(cutout.image.array.size-6)
+        flux_fit, gradFlux_fit = model.computeFluxWithGradient(params_fit)
 
         # Fall back to aperture flux
         if (not np.isfinite(flux)) | (np.abs(flux) > self.config.maxFlux):
@@ -321,8 +321,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         measRecord.set(self.keyFlux, flux)
         measRecord.set(self.keyLength, length)
         measRecord.set(self.keyAngle, theta)
-        measRecord.set(self.keyChi2, chi2)
-        measRecord.set(self.keynData, len(cutout))
+        measRecord.set(self.keyChi2, chi2) # Assume reduced chi2, take existing chi2 and reduce by number of pixels
+        measRecord.set(self.keynData, cutout.image.array.size)
         # The cutout size is the number of the datapoints
 
     def check_trail(self, measRecord, exposure, x0, y0, x1, y1, length):
