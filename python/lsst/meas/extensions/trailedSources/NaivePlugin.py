@@ -239,7 +239,8 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         # chi2 is the sum of squared differences divided by the error squared
         # The cutout size is the number of the datapoints
         params_fit = np.array([xc, yc, flux, length, theta])
-        chi2 = np.sum((cutout - model.computeModelImage(params_fit))**2 / model.computeErrorImage(params_fit)**2)
+        chi2 = np.sum((cutout - model.computeModelImage(params_fit))**2 /
+                      model.computeErrorImage(params_fit)**2)
 
         # Fall back to aperture flux
         if (not np.isfinite(flux)) | (np.abs(flux) > self.config.maxFlux):
