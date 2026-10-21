@@ -440,6 +440,53 @@ class TrailedSourcesTestCase(AlgorithmTestCase, lsst.utils.tests.TestCase):
         self.assertGreater(diff, -0.1)
         self.assertLess(diff, 0.6)
 
+        # Flux error
+        flux = catalog[nameBase+"flux"]
+        fluxErr = catalog[nameBase+"fluxErr"]
+        fluxStd = np.nanstd(flux)
+        fluxErrMean = np.nanmean(fluxErr)
+        diff = (fluxErrMean - fluxStd) / fluxErrMean
+        self.assertGreater(diff, -0.1)
+        self.assertLess(diff, 0.6)
+
+        # Endpoint errors (x0, y0; x1Err == x0Err, y1Err == y0Err by
+        # construction so only test one pair)
+        x0 = catalog[nameBase+"x0"]
+        x0Err = catalog[nameBase+"x0Err"]
+        x0Std = np.nanstd(x0)
+        x0ErrMean = np.nanmean(x0Err)
+        diff = (x0ErrMean - x0Std) / x0ErrMean
+        self.assertGreater(diff, -0.1)
+        self.assertLess(diff, 0.6)
+
+        y0 = catalog[nameBase+"y0"]
+        y0Err = catalog[nameBase+"y0Err"]
+        y0Std = np.nanstd(y0)
+        y0ErrMean = np.nanmean(y0Err)
+        diff = (y0ErrMean - y0Std) / y0ErrMean
+        self.assertGreater(diff, -0.1)
+        self.assertLess(diff, 0.6)
+
+        # RA and Dec errors
+        ra = catalog[nameBase+"ra"]
+        raErr = catalog[nameBase+"raErr"]
+        raStd = np.nanstd(ra)
+        # raErr is in arcsec, ra is in degrees; convert std to arcsec
+        raStdArcsec = raStd * 3600.0
+        raErrMean = np.nanmean(raErr)
+        diff = (raErrMean - raStdArcsec) / raErrMean
+        self.assertGreater(diff, -0.1)
+        self.assertLess(diff, 0.6)
+
+        dec = catalog[nameBase+"dec"]
+        decErr = catalog[nameBase+"decErr"]
+        decStd = np.nanstd(dec)
+        decStdArcsec = decStd * 3600.0
+        decErrMean = np.nanmean(decErr)
+        diff = (decErrMean - decStdArcsec) / decErrMean
+        self.assertGreater(diff, -0.1)
+        self.assertLess(diff, 0.6)
+
 
 class TestMemory(lsst.utils.tests.MemoryTestCase):
     pass

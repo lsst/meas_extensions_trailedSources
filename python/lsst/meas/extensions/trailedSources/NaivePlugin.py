@@ -112,7 +112,7 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         self.keyLength = schema.addField(name + "_length", type="D", doc="Trail length.", units="pixel")
         self.keyAngle = schema.addField(name + "_angle", type="D", doc="Angle measured from +x-axis.")
         self.keynData = schema.addField(name + "_nData", type="I", doc="Number of data points used.")
-        self.keyChi2 = schema.addField(name + "_chi2", type="D", doc="Chi-squared of the fit.", units="pixel")
+        self.keyChi2 = schema.addField(name + "_chi2", type="D", doc="Reduced chi-squared of the fit.")
 
         # Measurement Error Keys
         self.keyX0Err = schema.addField(name + "_x0Err", type="D",
@@ -234,22 +234,20 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         model = VeresModel(cutout)
         flux, gradFlux = model.computeFluxWithGradient(params)
 
-        # Give fit flux that we have just derived data - model / err
-        # Compute model image
-        # The model returns
-        # The cutout size is the number of the datapoints
-        params_fit = np.array([xc, yc, flux, length, theta])
-        chi2 = model(params_fit)/(cutout.image.array.size-6)
-        flux_fit, gradFlux_fit = model.computeFluxWithGradient(params_fit)
-
         # Fall back to aperture flux
+        flux_is_fallback = False
         if (not np.isfinite(flux)) | (np.abs(flux) > self.config.maxFlux):
             if np.isfinite(measRecord.getApInstFlux()):
                 flux = measRecord.getApInstFlux()
+                flux_is_fallback = True
             else:
                 self.flagHandler.setValue(measRecord, self.NO_FLUX.number, True)
                 self.flagHandler.setValue(measRecord, self.FAILURE.number, True)
                 return
+
+        # Compute reduced chi-squared using the final flux
+        params_fit = np.array([xc, yc, flux, length, theta])
+        chi2 = model(params_fit)/(cutout.image.array.size - 5)
 
         # Errors can only be calculated when using SDSS shape. Otherwise,
         # the errors are set to nan.
@@ -287,18 +285,19 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
             thetaErr = sqrt(dThetadIxx*dThetadIxx*(IxxErr2 + IyyErr2) + dThetadIxy*dThetadIxy*IxyErr2)
 
             # Error in flux
-            dFdxc, dFdyc, _, dFdL, dFdTheta = gradFlux
-            fluxErr = sqrt(dFdL*dFdL*lengthErr*lengthErr + dFdTheta*dFdTheta*thetaErr*thetaErr
-                           + dFdxc*dFdxc*xcErr2 + dFdyc*dFdyc*ycErr2)
+            if not flux_is_fallback:
+                dFdxc, dFdyc, _, dFdL, dFdTheta = gradFlux
+                fluxErr = sqrt(dFdL*dFdL*lengthErr*lengthErr + dFdTheta*dFdTheta*thetaErr*thetaErr
+                               + dFdxc*dFdxc*xcErr2 + dFdyc*dFdyc*ycErr2)
+            else:
+                fluxErr = np.nan
 
             # Errors in end-points
             dxdradius = np.cos(theta)
             dydradius = np.sin(theta)
             radiusErr2 = lengthErr*lengthErr/4.0
-            xErr2 = sqrt(xcErr2 + radiusErr2*dxdradius*dxdradius + thetaErr*thetaErr*dxdtheta*dxdtheta)
-            yErr2 = sqrt(ycErr2 + radiusErr2*dydradius*dydradius + thetaErr*thetaErr*dydtheta*dydtheta)
-            x0Err = sqrt(xErr2)  # Same for x1
-            y0Err = sqrt(yErr2)  # Same for y1
+            x0Err = sqrt(xcErr2 + radiusErr2*dxdradius*dxdradius + thetaErr*thetaErr*dxdtheta*dxdtheta)
+            y0Err = sqrt(ycErr2 + radiusErr2*dydradius*dydradius + thetaErr*thetaErr*dydtheta*dydtheta)
 
             # Set error values
             measRecord.set(self.keyRaErr, raErr)
