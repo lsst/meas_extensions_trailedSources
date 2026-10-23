@@ -170,7 +170,7 @@ class SingleFrameVeresTrailPlugin(SingleFramePlugin):
         y0_fit = yc_fit - a * np.sin(theta_fit)
         x1_fit = xc_fit + a * np.cos(theta_fit)
         y1_fit = yc_fit + a * np.sin(theta_fit)
-        rChiSq = results.fun / (cutout.image.array.size - 6)
+        rChiSq = results.fun / (cutout.image.array.size - 5)
 
         # Set keys
         measRecord.set(self.keyXC, xc_fit)
