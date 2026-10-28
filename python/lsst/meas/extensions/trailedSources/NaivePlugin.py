@@ -233,9 +233,11 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         flux, gradFlux = model.computeFluxWithGradient(params)
 
         # Fall back to aperture flux
+        flux_is_fallback = False
         if (not np.isfinite(flux)) | (np.abs(flux) > self.config.maxFlux):
             if np.isfinite(measRecord.getApInstFlux()):
                 flux = measRecord.getApInstFlux()
+                flux_is_fallback = True
             else:
                 self.flagHandler.setValue(measRecord, self.NO_FLUX.number, True)
                 self.flagHandler.setValue(measRecord, self.FAILURE.number, True)
@@ -277,18 +279,23 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
             thetaErr = sqrt(dThetadIxx*dThetadIxx*(IxxErr2 + IyyErr2) + dThetadIxy*dThetadIxy*IxyErr2)
 
             # Error in flux
-            dFdxc, dFdyc, _, dFdL, dFdTheta = gradFlux
-            fluxErr = sqrt(dFdL*dFdL*lengthErr*lengthErr + dFdTheta*dFdTheta*thetaErr*thetaErr
-                           + dFdxc*dFdxc*xcErr2 + dFdyc*dFdyc*ycErr2)
+            if not flux_is_fallback:
+                dFdxc, dFdyc, _, dFdL, dFdTheta = gradFlux
+                fluxErr = sqrt(dFdL*dFdL*lengthErr*lengthErr + dFdTheta*dFdTheta*thetaErr*thetaErr
+                               + dFdxc*dFdxc*xcErr2 + dFdyc*dFdyc*ycErr2)
+            else:
+                fluxErr = np.nan
 
             # Errors in end-points
             dxdradius = np.cos(theta)
             dydradius = np.sin(theta)
             radiusErr2 = lengthErr*lengthErr/4.0
-            xErr2 = sqrt(xcErr2 + radiusErr2*dxdradius*dxdradius + thetaErr*thetaErr*dxdtheta*dxdtheta)
-            yErr2 = sqrt(ycErr2 + radiusErr2*dydradius*dydradius + thetaErr*thetaErr*dydtheta*dydtheta)
-            x0Err = sqrt(xErr2)  # Same for x1
-            y0Err = sqrt(yErr2)  # Same for y1
+            xErr2 = sqrt(xcErr2 + radiusErr2*dxdradius*dxdradius +
+                         thetaErr*thetaErr*dxdtheta*dxdtheta) # Variance
+            yErr2 = sqrt(ycErr2 + radiusErr2*dydradius*dydradius +
+                         thetaErr*thetaErr*dydtheta*dydtheta)  # Variance
+            x0Err = xErr2  # Same for x1, standard of deviation
+            y0Err = yErr2  # Same for y1, standard of deviation
 
             # Set error values
             measRecord.set(self.keyRaErr, raErr)
