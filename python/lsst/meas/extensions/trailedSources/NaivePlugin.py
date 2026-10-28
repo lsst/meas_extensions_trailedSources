@@ -290,10 +290,9 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
             dxdradius = np.cos(theta)
             dydradius = np.sin(theta)
             radiusErr2 = lengthErr*lengthErr/4.0
-            xErr2 = sqrt(xcErr2 + radiusErr2*dxdradius*dxdradius +
-                         thetaErr*thetaErr*dxdtheta*dxdtheta) # Variance
-            yErr2 = sqrt(ycErr2 + radiusErr2*dydradius*dydradius +
-                         thetaErr*thetaErr*dydtheta*dydtheta)  # Variance
+            # Variance
+            xErr2 = sqrt(xcErr2 + radiusErr2*dxdradius*dxdradius + thetaErr*thetaErr*dxdtheta*dxdtheta)
+            yErr2 = sqrt(ycErr2 + radiusErr2*dydradius*dydradius + thetaErr*thetaErr*dydtheta*dydtheta)
             x0Err = xErr2  # Same for x1, standard of deviation
             y0Err = yErr2  # Same for y1, standard of deviation
 
