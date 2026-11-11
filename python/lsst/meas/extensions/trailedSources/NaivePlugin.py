@@ -27,7 +27,7 @@ import scipy.optimize as sciOpt
 from scipy.special import erf
 from math import sqrt
 
-from lsst.geom import Point2D, Point2I
+from lsst.geom import Point2D, Point2I, arcseconds
 from lsst.meas.base.pluginRegistry import register
 from lsst.meas.base import SingleFramePlugin, SingleFramePluginConfig
 from lsst.meas.base import FlagHandler, FlagDefinitionList
@@ -100,6 +100,10 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         # Measurement Keys
         self.keyRa = schema.addField(name + "_ra", type="D", doc="Trail centroid right ascension.")
         self.keyDec = schema.addField(name + "_dec", type="D", doc="Trail centroid declination.")
+        self.keyRaErr = schema.addField(name + "_raErr", type="D",
+                                        doc="Trail centroid right ascension error.", units="arcsec")
+        self.keyDecErr = schema.addField(name + "_decErr", type="D",
+                                         doc="Trail centroid declination error.", units="arcsec")
         self.keyX0 = schema.addField(name + "_x0", type="D", doc="Trail head X coordinate.", units="pixel")
         self.keyY0 = schema.addField(name + "_y0", type="D", doc="Trail head Y coordinate.", units="pixel")
         self.keyX1 = schema.addField(name + "_x1", type="D", doc="Trail tail X coordinate.", units="pixel")
@@ -229,9 +233,11 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
         flux, gradFlux = model.computeFluxWithGradient(params)
 
         # Fall back to aperture flux
+        flux_is_fallback = False
         if (not np.isfinite(flux)) | (np.abs(flux) > self.config.maxFlux):
             if np.isfinite(measRecord.getApInstFlux()):
                 flux = measRecord.getApInstFlux()
+                flux_is_fallback = True
             else:
                 self.flagHandler.setValue(measRecord, self.NO_FLUX.number, True)
                 self.flagHandler.setValue(measRecord, self.FAILURE.number, True)
@@ -251,6 +257,12 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
             xcErr2 = measRecord["base_SdssCentroid_xErr"]**2
             ycErr2 = measRecord["base_SdssCentroid_yErr"]**2
 
+            # Error in RA and Dec
+            wcs = exposure.getWcs()
+            jacobian = wcs.linearizePixelToSky(Point2D(xc, yc), arcseconds).getLinear().getMatrix()
+            raErr = sqrt(jacobian[0, 0]**2 * xcErr2 + jacobian[0, 1]**2 * ycErr2)
+            decErr = sqrt(jacobian[1, 0]**2 * xcErr2 + jacobian[1, 1]**2 * ycErr2)
+
             # Error in length
             desc = sqrt(xmy2 + 4.0*xy2)  # Descriminant^1/2 of EV equation
             da2dIxx = 0.5*(1.0 + (xmy/desc))
@@ -267,20 +279,26 @@ class SingleFrameNaiveTrailPlugin(SingleFramePlugin):
             thetaErr = sqrt(dThetadIxx*dThetadIxx*(IxxErr2 + IyyErr2) + dThetadIxy*dThetadIxy*IxyErr2)
 
             # Error in flux
-            dFdxc, dFdyc, _, dFdL, dFdTheta = gradFlux
-            fluxErr = sqrt(dFdL*dFdL*lengthErr*lengthErr + dFdTheta*dFdTheta*thetaErr*thetaErr
-                           + dFdxc*dFdxc*xcErr2 + dFdyc*dFdyc*ycErr2)
+            if not flux_is_fallback:
+                dFdxc, dFdyc, _, dFdL, dFdTheta = gradFlux
+                fluxErr = sqrt(dFdL*dFdL*lengthErr*lengthErr + dFdTheta*dFdTheta*thetaErr*thetaErr
+                               + dFdxc*dFdxc*xcErr2 + dFdyc*dFdyc*ycErr2)
+            else:
+                fluxErr = np.nan
 
             # Errors in end-points
             dxdradius = np.cos(theta)
             dydradius = np.sin(theta)
             radiusErr2 = lengthErr*lengthErr/4.0
+            # Variance
             xErr2 = sqrt(xcErr2 + radiusErr2*dxdradius*dxdradius + thetaErr*thetaErr*dxdtheta*dxdtheta)
             yErr2 = sqrt(ycErr2 + radiusErr2*dydradius*dydradius + thetaErr*thetaErr*dydtheta*dydtheta)
-            x0Err = sqrt(xErr2)  # Same for x1
-            y0Err = sqrt(yErr2)  # Same for y1
+            x0Err = xErr2  # Same for x1, standard of deviation
+            y0Err = yErr2  # Same for y1, standard of deviation
 
             # Set error values
+            measRecord.set(self.keyRaErr, raErr)
+            measRecord.set(self.keyDecErr, decErr)
             measRecord.set(self.keyX0Err, x0Err)
             measRecord.set(self.keyY0Err, y0Err)
             measRecord.set(self.keyX1Err, x0Err)
