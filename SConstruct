@@ -1,3 +1,3 @@
 # -*- python -*-
 from lsst.sconsUtils import scripts
-scripts.BasicSConstruct("meas_extensions_trailedSources")
+scripts.BasicSConstruct("meas_extensions_trailedSources", noCfgFile=True)
